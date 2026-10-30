@@ -242,6 +242,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarEnvironmentScopeMenu } from "./sidebar/SidebarEnvironmentScopeMenu";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -694,6 +695,15 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   };
 }
 
+function intersectSidebarScopeKeys(
+  left: ReadonlySet<string> | null,
+  right: ReadonlySet<string> | null,
+): ReadonlySet<string> | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return new Set([...left].filter((key) => right.has(key)));
+}
+
 /** The sidebar's scope per environment: the scoped projects there, or every project. */
 function olderSettledScopes(
   environmentIds: ReadonlyArray<EnvironmentId>,
@@ -985,6 +995,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const persistedEnvironmentScopeId = useUiStateStore((store) => store.sidebarEnvironmentScopeId);
+  const setPersistedEnvironmentScopeId = useUiStateStore(
+    (store) => store.setSidebarEnvironmentScopeId,
+  );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -1069,6 +1083,34 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  const environmentScopeOptions = [...environmentLabelById].map(([environmentId, label]) => ({
+    environmentId,
+    label,
+    machine: environmentMachineById.get(environmentId) ?? ("server" as const),
+  }));
+  const chosenEnvironmentScopeId =
+    persistedEnvironmentScopeId !== null &&
+    environmentLabelById.has(persistedEnvironmentScopeId as EnvironmentId)
+      ? (persistedEnvironmentScopeId as EnvironmentId)
+      : null;
+  const setEnvironmentScopeId = (environmentId: EnvironmentId | null) => {
+    clearSelection();
+    setPersistedEnvironmentScopeId(environmentId);
+  };
+  const chosenScopeKeys = intersectSidebarScopeKeys(
+    chosenScopeProjectKeys,
+    chosenEnvironmentScopeId === null
+      ? null
+      : new Set(
+          projectGroups.flatMap((project) =>
+            project.memberProjectRefs.flatMap((projectRef) =>
+              projectRef.environmentId === chosenEnvironmentScopeId
+                ? [`${projectRef.environmentId}:${projectRef.projectId}`]
+                : [],
+            ),
+          ),
+        ),
+  );
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -1093,7 +1135,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reveal: routeReveal,
     routeKey: routeRowThreadKey,
     isSearching: isSearchingThreads,
-    scopedProjectKeys: chosenScopeProjectKeys,
+    scopedProjectKeys: chosenScopeKeys,
     delegatedUnderParent,
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
@@ -1114,7 +1156,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (!revealWidensScope) return;
     clearSelection();
     setPersistedProjectScopeKeys([]);
-  }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
+    setPersistedEnvironmentScopeId(null);
+  }, [
+    clearSelection,
+    revealWidensScope,
+    setPersistedProjectScopeKeys,
+    setPersistedEnvironmentScopeId,
+  ]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
@@ -1136,16 +1184,35 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+    items:
+      chosenEnvironmentScopeId === null
+        ? projectScopeItems
+        : projectScopeItems.filter(
+            (item) =>
+              item.value === "all" ||
+              projectGroupByScopeKey
+                .get(item.value)
+                ?.memberProjectRefs.some(
+                  (projectRef) => projectRef.environmentId === chosenEnvironmentScopeId,
+                ),
+          ),
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
-  const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const scopedEnvironmentId = revealWidensScope ? null : chosenEnvironmentScopeId;
+  const scopedProjectRefs = scopedProjectGroups
+    .flatMap((project) => project.memberProjectRefs)
+    .filter(
+      (projectRef) =>
+        scopedEnvironmentId === null || projectRef.environmentId === scopedEnvironmentId,
+    );
+  const scopedProjectKeys = revealWidensScope ? null : chosenScopeKeys;
   const threadSearch = useThreadSearch(
-    searchEnvironmentIds,
+    scopedEnvironmentId === null
+      ? searchEnvironmentIds
+      : searchEnvironmentIds.filter((environmentId) => environmentId === scopedEnvironmentId),
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1282,9 +1349,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     delegatedUnderParent,
     routeRowThreadKey,
     folderGroups: boringSidebarEnabled
-      ? scopedProjectGroups.length === 0
-        ? projectGroups
-        : scopedProjectGroups
+      ? (scopedProjectGroups.length === 0 ? projectGroups : scopedProjectGroups).filter(
+          (project) =>
+            scopedEnvironmentId === null ||
+            project.memberProjectRefs.some(
+              (projectRef) => projectRef.environmentId === scopedEnvironmentId,
+            ),
+        )
       : null,
     keepEmptyFolders: scopedProjectGroups.length > 0,
   });
@@ -2900,6 +2971,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
+              environmentScope={
+                environmentScopeOptions.length > 1 ? (
+                  <SidebarEnvironmentScopeMenu
+                    environments={environmentScopeOptions}
+                    selectedEnvironmentId={scopedEnvironmentId}
+                    onSelect={setEnvironmentScopeId}
+                  />
+                ) : null
+              }
               projectScope={
                 <Combobox
                   items={projectScopeItems}
