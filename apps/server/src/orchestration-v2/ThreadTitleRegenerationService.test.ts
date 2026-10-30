@@ -379,6 +379,41 @@ describe("ThreadTitleRegenerationService", () => {
     }),
   );
 
+  it.effect("keeps a thread's extra folders until they are replaced", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const threadId = yield* createThread({
+          command: "command:folders:create",
+          thread: "thread:folders",
+        });
+        const folders = ["/work/clients-2026-10-copay", "/work/services-2026-10-copay"];
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("command:folders:set"),
+          threadId,
+          folders,
+        });
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("command:folders:rename"),
+          threadId,
+          title: "Copay",
+        });
+        assert.deepEqual((yield* threads.getThreadShell(threadId))?.folders, folders);
+
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("command:folders:clear"),
+          threadId,
+          folders: [],
+        });
+        assert.deepEqual((yield* threads.getThreadShell(threadId))?.folders, []);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
   it.effect("skips execution when the marker was superseded by a newer request", () =>
     Effect.gen(function* () {
       const harness = makeHarness();
