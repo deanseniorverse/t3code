@@ -35,7 +35,7 @@ export function ThreadRepoPills(props: {
         <Button
           key={root.path}
           size="xs"
-          variant={root.path === props.selectedPath ? "secondary" : "glass"}
+          variant={root.path === props.selectedPath ? "default" : "outline"}
           aria-pressed={root.path === props.selectedPath}
           title={root.path}
           onClick={() => props.onSelect(root)}

@@ -720,18 +720,21 @@ export default function DiffPanel({
     }
   };
 
+  const repoPills = (
+    <ThreadRepoPills
+      roots={repoRoots}
+      selectedPath={activeCwd ?? null}
+      onSelect={(root) => {
+        setRepoRootChoice(root.path);
+        // Turns are checkpoints of the thread's own checkout only.
+        if (root.path !== ownCwd && !isGitSelection) selectGitScope("branch");
+      }}
+    />
+  );
+
   const headerRow = (
     <>
       <div className="@container/diff-refs flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
-        <ThreadRepoPills
-          roots={repoRoots}
-          selectedPath={activeCwd ?? null}
-          onSelect={(root) => {
-            setRepoRootChoice(root.path);
-            // Turns are checkpoints of the thread's own checkout only.
-            if (root.path !== ownCwd && !isGitSelection) selectGitScope("branch");
-          }}
-        />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<Button size="xs" variant="secondary" />}
@@ -1072,7 +1075,11 @@ export default function DiffPanel({
   );
 
   return (
-    <DiffPanelShell mode={mode} header={headerRow}>
+    <DiffPanelShell
+      mode={mode}
+      header={headerRow}
+      subheader={repoRoots.length > 1 ? repoPills : null}
+    >
       {!activeThread ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
