@@ -67,7 +67,7 @@ export function SidebarThreadFilters(props: {
   );
   const filtered = props.selectedEnvironmentId !== null || props.selectedProjectLabel !== null;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 px-2 pb-1">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 pb-1">
       {props.environments.length > 1 ? (
         <FilterMenu
           allLabel="All environments"
