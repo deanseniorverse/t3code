@@ -488,6 +488,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   opens: Schema.optional(LenientThreadOpens),
   // True once someone names the thread; until then a branch names it.
   named: Schema.optional(Schema.Boolean),
+  // Folders beyond the thread's own checkout that its work reaches, such as sibling repositories.
+  folders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -2100,6 +2102,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),
+  // Folders beyond the thread's own checkout that its work reaches, such as sibling repositories.
+  folders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -2999,6 +3003,8 @@ export const OrchestrationV2Command = Schema.Union([
     regenerateTitle: Schema.optional(Schema.Boolean),
     branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+    /** Replace the thread's extra folders; absent leaves them unchanged. */
+    folders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     expectedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     /** Reject unless no message or run has landed on this thread. */
