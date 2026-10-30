@@ -559,7 +559,7 @@ type SidebarThreadRowProps = {
   currentEnvironmentId: string | null;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
-  scratchMachineLabel: string | null;
+  machineLabel: string | null;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
@@ -799,7 +799,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : thread.modelSelection.model;
 
   const isRemote = thread.environmentId !== props.currentEnvironmentId;
-  const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
+  const showsMachineLine = !thread.branch && props.machineLabel !== null;
 
   const detailsTooltip = (
     <SidebarThreadTooltip
@@ -1126,7 +1126,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // Only the provider icon would remain, so the row drops the line instead of leaving it blank.
   const metaLineEmpty =
     !thread.branch &&
-    !showsScratchMachine &&
+    !showsMachineLine &&
     prBadge === null &&
     diff === null &&
     !isRemote &&
@@ -1140,14 +1140,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             <MiddleTruncate value={thread.branch} showTitle={false} />
           </span>
         </>
-      ) : showsScratchMachine ? (
+      ) : showsMachineLine ? (
         <>
           <EnvironmentMachineIcon
             aria-hidden
             kind={props.environmentMachine}
             className="size-3 shrink-0"
           />
-          <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
+          <span className="min-w-0 flex-1 truncate">{props.machineLabel}</span>
         </>
       ) : (
         <span className="flex-1" />
@@ -1164,13 +1164,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         aria-hidden
         className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
       >
-        {isRemote && !showsScratchMachine ? (
-          <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+        {(isRemote || props.machineLabel !== null) && !showsMachineLine ? (
+          <span className="inline-flex min-w-0 shrink items-center gap-1 text-sidebar-muted-foreground/70">
             <EnvironmentMachineIcon
               aria-hidden
               kind={props.environmentMachine}
-              className="size-3.5"
+              className="size-3.5 shrink-0"
             />
+            {props.machineLabel !== null ? (
+              <span className="max-w-24 truncate">{props.machineLabel}</span>
+            ) : null}
           </span>
         ) : null}
         <SidebarProviderStack
