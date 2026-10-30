@@ -641,6 +641,7 @@ export default function DiffPanel({
       threadRef: routeThreadRef,
       filePath,
       activeCwd,
+      threadCwd: ownCwd,
       repositoryRoot: activeRepositoryRoot,
       openInEditor: (targetPath) => {
         void (async () => {
