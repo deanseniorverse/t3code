@@ -241,7 +241,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
-import { SidebarEnvironmentScopeMenu } from "./sidebar/SidebarEnvironmentScopeMenu";
+import { SidebarThreadFilters } from "./sidebar/SidebarThreadFilters";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -1092,9 +1092,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     environmentLabelById.has(persistedEnvironmentScopeId as EnvironmentId)
       ? (persistedEnvironmentScopeId as EnvironmentId)
       : null;
+  // Like the iPhone, a project the new environment lacks drops out of the scope.
   const setEnvironmentScopeId = (environmentId: EnvironmentId | null) => {
     clearSelection();
     setPersistedEnvironmentScopeId(environmentId);
+    if (environmentId === null) return;
+    const kept = persistedProjectScopeKeys.filter((key) =>
+      projectGroups
+        .find((project) => project.projectKey === key)
+        ?.memberProjectRefs.some((projectRef) => projectRef.environmentId === environmentId),
+    );
+    if (kept.length !== persistedProjectScopeKeys.length) setPersistedProjectScopeKeys(kept);
   };
   const chosenScopeKeys = intersectSidebarScopeKeys(
     chosenScopeProjectKeys,
@@ -1171,19 +1179,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       ? null
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
+  const environmentProjectScopeItems =
+    chosenEnvironmentScopeId === null
+      ? projectScopeItems
+      : projectScopeItems.filter(
+          (item) =>
+            item.value === "all" ||
+            projectGroupByScopeKey
+              .get(item.value)
+              ?.memberProjectRefs.some(
+                (projectRef) => projectRef.environmentId === chosenEnvironmentScopeId,
+              ),
+        );
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items:
-      chosenEnvironmentScopeId === null
-        ? projectScopeItems
-        : projectScopeItems.filter(
-            (item) =>
-              item.value === "all" ||
-              projectGroupByScopeKey
-                .get(item.value)
-                ?.memberProjectRefs.some(
-                  (projectRef) => projectRef.environmentId === chosenEnvironmentScopeId,
-                ),
-          ),
+    items: environmentProjectScopeItems,
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
@@ -2959,15 +2968,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
-              environmentScope={
-                environmentScopeOptions.length > 1 ? (
-                  <SidebarEnvironmentScopeMenu
-                    environments={environmentScopeOptions}
-                    selectedEnvironmentId={scopedEnvironmentId}
-                    onSelect={setEnvironmentScopeId}
-                  />
-                ) : null
-              }
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -3152,6 +3152,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {projectGroups.length > 0 ? (
+              <SidebarThreadFilters
+                environments={environmentScopeOptions}
+                selectedEnvironmentId={scopedEnvironmentId}
+                onEnvironmentChange={setEnvironmentScopeId}
+                projects={environmentProjectScopeItems.flatMap((item) =>
+                  item.value === "all" ? [] : [{ value: item.value, label: item.label }],
+                )}
+                selectedProjectKey={projectScopeKeys.length === 1 ? projectScopeKeys[0]! : null}
+                selectedProjectLabel={
+                  projectScopeKeys.length > 1
+                    ? `${projectScopeKeys.length} projects`
+                    : (projectGroupByScopeKey.get(projectScopeKeys[0] ?? "")?.displayName ?? null)
+                }
+                onProjectChange={(key) => setProjectScopeKeys(key === null ? [] : [key])}
+              />
+            ) : null}
           </SidebarGroup>
         }
       >
