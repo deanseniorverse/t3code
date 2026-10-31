@@ -200,6 +200,8 @@ import {
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
+import { ComposerSpecQuestionsDrawer } from "./ComposerSpecQuestionsPanel";
+import { useThreadSpec } from "../../specQuestionsState";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -1161,8 +1163,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const isChoiceOnlyPendingQuestion =
     activePendingProgress?.activeQuestion?.allowCustomAnswer === false;
+  const threadSpec = useThreadSpec(routeThreadRef);
+  const hasSpecQuestions = (threadSpec?.openQuestions.length ?? 0) > 0;
   const showComposerTopDrawer =
     pendingUserInputs.length > 0 ||
+    hasSpecQuestions ||
     (!isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan !== null);
   const showCollapsedMobilePromptRow = isComposerCollapsedMobile;
   const showComposerAttachAction =
@@ -3144,22 +3149,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           {showComposerTopDrawer ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root data-chat-composer-top-drawer="true" variant="info">
-                {pendingUserInputs.length > 0 ? (
-                  <ComposerPendingUserInputPanel
-                    pendingUserInputs={pendingUserInputs}
-                    cwd={gitCwd ?? undefined}
+                {pendingUserInputs.length > 0 || hasSpecQuestions ? (
+                  <ComposerSpecQuestionsDrawer
                     threadRef={routeThreadRef}
+                    spec={threadSpec}
                     disabled={!canOperateThread}
-                    respondingRequestIds={
-                      activePendingIsResponding && activePendingUserInput
-                        ? [...respondingRequestIds, activePendingUserInput.requestId]
-                        : respondingRequestIds
+                    agentPanel={
+                      pendingUserInputs.length > 0 ? (
+                        <ComposerPendingUserInputPanel
+                          pendingUserInputs={pendingUserInputs}
+                          cwd={gitCwd ?? undefined}
+                          threadRef={routeThreadRef}
+                          disabled={!canOperateThread}
+                          respondingRequestIds={
+                            activePendingIsResponding && activePendingUserInput
+                              ? [...respondingRequestIds, activePendingUserInput.requestId]
+                              : respondingRequestIds
+                          }
+                          answers={activePendingDraftAnswers}
+                          questionIndex={activePendingQuestionIndex}
+                          onToggleOption={onSelectActivePendingUserInputOption}
+                          onAdvance={onAdvanceActivePendingUserInput}
+                          onDismiss={onDismissActivePendingUserInput}
+                        />
+                      ) : null
                     }
-                    answers={activePendingDraftAnswers}
-                    questionIndex={activePendingQuestionIndex}
-                    onToggleOption={onSelectActivePendingUserInputOption}
-                    onAdvance={onAdvanceActivePendingUserInput}
-                    onDismiss={onDismissActivePendingUserInput}
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
                   <ComposerPlanFollowUpBanner
