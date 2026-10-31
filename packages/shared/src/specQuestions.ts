@@ -5,6 +5,9 @@ const SPEC_SLUG_PATTERN = /^\d{4}-\d{2}-[a-z0-9][a-z0-9-]*$/;
 const COS_TICKET_PATTERN = /^D-(\d+)$/;
 const COS_BASE_URL = "https://os.seniorverse.dev";
 
+// Company OS name written on comments; questions.yml comments carry a person's full name.
+export const SPEC_COMMENT_AUTHOR = "Dean Mraz";
+
 export interface SpecQuestionOption {
   readonly key: string;
   readonly text: string;

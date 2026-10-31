@@ -1,4 +1,4 @@
-import { RunId } from "@t3tools/contracts";
+import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -9,6 +9,7 @@ import {
   sortActiveThreadsByOrderKey,
   sortSettledThreads,
   sortThreads,
+  sortThreadsByStatusGroup,
   type SettledThreadTimestampInput,
   type ThreadSortInput,
 } from "./threadSort.ts";
@@ -300,5 +301,60 @@ describe("sortActiveThreadsByOrderKey", () => {
     const keys = new Map(assignments.map((assignment) => [assignment.id, assignment.orderKey]));
     const updated = threads.map((thread) => ({ ...thread, activeOrderKey: keys.get(thread.id) }));
     expect(sortActiveThreadsByOrderKey(updated).map((thread) => thread.id)).toEqual(orderedIds);
+  });
+});
+
+describe("sortThreadsByStatusGroup", () => {
+  const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, "0")}:00.000Z`;
+  const thread = (id: string, group: number, minute: number, visitedMinute = 0) => ({
+    id: ThreadId.make(id),
+    group,
+    environmentId: EnvironmentId.make("env-a"),
+    createdAt: at(0),
+    unsettledAt: null,
+    lastVisitedAt: at(visitedMinute),
+    latestRun: {
+      runId: RunId.make(`run-${id}`),
+      status: "completed" as const,
+      requestedAt: at(minute),
+      startedAt: at(minute),
+      completedAt: at(minute),
+      assistantMessageId: null,
+    },
+  });
+
+  it("orders by group, each oldest first, and read threads by oldest visit", () => {
+    const threads = [
+      thread("read-recent", 3, 1, 50),
+      thread("done-new", 2, 30),
+      thread("failed", 1, 20),
+      thread("read-old", 3, 1, 40),
+      thread("input-new", 0, 15),
+      thread("done-old", 2, 10),
+      thread("input-old", 0, 5),
+    ];
+
+    expect(
+      sortThreadsByStatusGroup(threads, (entry) => entry.group).map((entry) => entry.id),
+    ).toEqual([
+      "input-old",
+      "input-new",
+      "failed",
+      "done-old",
+      "done-new",
+      "read-old",
+      "read-recent",
+    ]);
+  });
+
+  it("orders a group by the latest return this device observed", () => {
+    const threads = [thread("early", 2, 10), thread("late", 2, 20)];
+    expect(
+      sortThreadsByStatusGroup(
+        threads,
+        (entry) => entry.group,
+        (entry) => (entry.id === "early" ? Date.parse(at(30)) : undefined),
+      ).map((entry) => entry.id),
+    ).toEqual(["late", "early"]);
   });
 });

@@ -8,7 +8,7 @@ import { useSpecQuestionsUi, useThreadSpec } from "../../specQuestionsState";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { THREAD_DETAILS_PANEL_ICON_CLASS } from "./threadDetailsPanelStyles";
-import { specDirectory } from "@t3tools/shared/specQuestions";
+import { specFilePath } from "@t3tools/client-runtime/state/spec-questions";
 
 /** Hidden unless the thread's branch or title names a spec found in one of its folders or projects. */
 export function ThreadSpecPanel(props: {
@@ -29,9 +29,7 @@ export function ThreadSpecPanel(props: {
           part="row"
           multiline
           onClick={() =>
-            useRightPanelStore
-              .getState()
-              .openFile(threadRef, `${spec.root}/${specDirectory(spec.slug)}/spec.md`)
+            useRightPanelStore.getState().openFile(threadRef, specFilePath(spec, "spec.md"))
           }
         >
           <FileTextIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />

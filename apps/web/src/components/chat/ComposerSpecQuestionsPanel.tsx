@@ -1,6 +1,10 @@
 // Fork-only: answers a framework spec's questions.yml from the composer drawer.
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { specDirectory, type SpecQuestion } from "@t3tools/shared/specQuestions";
+import {
+  parseSpecQuestionSource,
+  specFilePath,
+} from "@t3tools/client-runtime/state/spec-questions";
+import { SPEC_COMMENT_AUTHOR, type SpecQuestion } from "@t3tools/shared/specQuestions";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -18,9 +22,6 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
-
-// Company OS name written on comments; questions.yml comments carry a person's full name.
-const SPEC_COMMENT_AUTHOR = "Dean Mraz";
 
 /**
  * The composer's top drawer when a spec has open questions. With an agent question open
@@ -327,7 +328,7 @@ function SpecQuestionMeta(props: {
   question: SpecQuestion;
 }) {
   const { question, spec } = props;
-  const source = question.source === null ? null : /^(.*?)(?::(\d+))?$/.exec(question.source);
+  const source = parseSpecQuestionSource(question.source);
   const details = [
     question.assignee ? `For ${question.assignee}` : null,
     question.priority ? `Priority ${question.priority}` : null,
@@ -343,11 +344,7 @@ function SpecQuestionMeta(props: {
           onClick={() =>
             useRightPanelStore
               .getState()
-              .openFile(
-                props.threadRef,
-                `${spec.root}/${specDirectory(spec.slug)}/${source[1]}`,
-                source[2] === undefined ? undefined : Number(source[2]),
-              )
+              .openFile(props.threadRef, specFilePath(spec, source.file), source.line)
           }
         >
           {question.source}
