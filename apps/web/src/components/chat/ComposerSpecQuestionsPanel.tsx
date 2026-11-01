@@ -1,10 +1,10 @@
-// Fork-only: answers a framework spec's questions.yml from the composer drawer.
+// Fork-only: answers a spec's questions from the composer drawer.
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   parseSpecQuestionSource,
   specFilePath,
 } from "@t3tools/client-runtime/state/spec-questions";
-import { SPEC_COMMENT_AUTHOR, type SpecQuestion } from "@t3tools/shared/specQuestions";
+import type { SpecQuestion } from "@t3tools/shared/specQuestions";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -108,7 +108,7 @@ function SpecQuestionsCard(props: {
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Could not update questions.yml",
+        title: `Could not update ${spec.questionsPath}`,
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -217,7 +217,9 @@ function SpecQuestionsCard(props: {
               disabled={locked}
               placeholder={
                 selected === null
-                  ? "Type your own answer, or a comment"
+                  ? spec.commentAuthor !== null
+                    ? "Type your own answer, or a comment"
+                    : "Type your own answer"
                   : `Optional tweak to ${selected}, e.g. "but per center"`
               }
               onChange={(event) => setNote(event.currentTarget.value)}
@@ -259,25 +261,27 @@ function SpecQuestionsCard(props: {
                     (handedOff) =>
                       handedOff
                         ? "All questions answered. Asked the agent to review and replan."
-                        : `Saved the answer to Q${question.number} in questions.yml`,
+                        : `Saved the answer to Q${question.number}`,
                   )
                 }
               >
                 Answer
               </Button>
-              <Button
-                size="compact"
-                variant="outline"
-                disabled={locked || trimmedNote === ""}
-                onClick={() =>
-                  void run(
-                    () => actions.comment(question, SPEC_COMMENT_AUTHOR, trimmedNote),
-                    `Commented on Q${question.number}`,
-                  )
-                }
-              >
-                Comment
-              </Button>
+              {spec.commentAuthor !== null ? (
+                <Button
+                  size="compact"
+                  variant="outline"
+                  disabled={locked || trimmedNote === ""}
+                  onClick={() =>
+                    void run(
+                      () => actions.comment(question, spec.commentAuthor!, trimmedNote),
+                      `Commented on Q${question.number}`,
+                    )
+                  }
+                >
+                  Comment
+                </Button>
+              ) : null}
               <Button
                 size="compact"
                 variant="ghost-muted"

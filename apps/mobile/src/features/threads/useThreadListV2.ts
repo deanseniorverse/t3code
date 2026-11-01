@@ -4,12 +4,14 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../../state/olderSettledShelf";
+import { useOpenSpecThreads } from "../../state/specQuestions";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
   threadListInboxReturns,
+  threadSpecListKey,
 } from "./threadListV2";
 import { computeThreadMoveAvailability } from "./threadOrder";
 
@@ -92,7 +94,9 @@ export function useThreadListV2(input: {
     // A search lists only matches, so the shelf would page forever; loaded pages stay.
     visibleCount: input.searchQuery.trim().length === 0 ? input.settledLimit : 0,
   });
+  const openSpecThreadKeys = useOpenSpecThreads(threads, threadSpecListKey);
   const layout = buildThreadListV2Items({
+    openSpecThreadKeys,
     pendingOrder: input.pendingOrder,
     threads: threads.filter((thread) => thread.archivedAt === null),
     environmentId: input.environmentId,

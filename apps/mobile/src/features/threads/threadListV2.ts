@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import {
   threadSearchMatchKey,
@@ -242,8 +243,12 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function threadListV2StatusGroup(thread: EnvironmentThreadShell) {
-  const status = resolveThreadListV2Status(thread);
+function threadListV2StatusGroup(thread: EnvironmentThreadShell, hasOpenSpecQuestions: boolean) {
+  const status = statusWithOpenSpecQuestions(
+    resolveThreadListV2Status(thread),
+    thread,
+    hasOpenSpecQuestions,
+  );
   if (status === "input" || status === "approval" || status === "request") return 0;
   if (status === "failed" || status === "limited") return 1;
   if (status === "ready" && threadHasUnseenCompletion(thread)) return 2;
@@ -251,11 +256,22 @@ function threadListV2StatusGroup(thread: EnvironmentThreadShell) {
 }
 
 /** The main list as a to-do list: needs input, failed, unread Done, then read threads. */
+const EMPTY_SPEC_THREAD_KEYS: ReadonlySet<string> = new Set();
+
+export function threadSpecListKey(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) {
+  return `${thread.environmentId}:${thread.id}`;
+}
+
 export function sortThreadsByListV2Status(
   threads: readonly EnvironmentThreadShell[],
   observedReturnAt?: (thread: EnvironmentThreadShell) => number | undefined,
+  hasOpenSpecQuestions: (thread: EnvironmentThreadShell) => boolean = () => false,
 ): EnvironmentThreadShell[] {
-  return sortThreadsByStatusGroup(threads, threadListV2StatusGroup, observedReturnAt);
+  return sortThreadsByStatusGroup(
+    threads,
+    (thread) => threadListV2StatusGroup(thread, hasOpenSpecQuestions(thread)),
+    observedReturnAt,
+  );
 }
 
 export function getThreadListV2OrderedSection(input: {
@@ -613,6 +629,7 @@ export function buildThreadListV2Items(input: {
   readonly workingShelfExpanded?: boolean;
   readonly isWorking?: (thread: EnvironmentThreadShell) => boolean;
   readonly inboxReturnAt?: (thread: EnvironmentThreadShell) => number | undefined;
+  readonly openSpecThreadKeys?: ReadonlySet<string>;
   readonly snoozedShelfExpanded?: boolean;
   readonly settledShelfExpanded?: boolean;
   readonly selectedThreadKey?: string | null;
@@ -745,7 +762,9 @@ export function buildThreadListV2Items(input: {
     };
   }
 
-  const orderedActive = sortThreadsByListV2Status(active, input.inboxReturnAt);
+  const orderedActive = sortThreadsByListV2Status(active, input.inboxReturnAt, (thread) =>
+    (input.openSpecThreadKeys ?? EMPTY_SPEC_THREAD_KEYS).has(threadSpecListKey(thread)),
+  );
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>

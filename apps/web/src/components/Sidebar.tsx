@@ -201,6 +201,7 @@ import {
   type SidebarSection,
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";
+import { useOpenSpecThreads } from "../specQuestionsState";
 import { sortThreadsByStatus } from "./sidebarStatusSort";
 import {
   createSidebarCollisionDetection,
@@ -340,6 +341,7 @@ interface SidebarThreadPartitionInput {
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
+  readonly openSpecThreads: ReadonlySet<string>;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -362,6 +364,7 @@ function resolveDraggedOrders(input: {
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
+  readonly openSpecThreads: ReadonlySet<string>;
 }): typeof NO_DRAGGED_ORDERS {
   const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
   const thread = threadByKey.get(drag.activeKey);
@@ -377,6 +380,7 @@ function resolveDraggedOrders(input: {
       ? sortThreadsByStatus(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
           inboxReturns.returnedAt,
+          (candidate) => input.openSpecThreads.has(threadShellKey(candidate)),
         ).map(threadShellKey)
       : undefined,
   };
@@ -454,8 +458,10 @@ function useSidebarThreads(input: {
   const settledVisibleCount =
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
+  const openSpecThreads = useOpenSpecThreads(threads, threadShellKey);
   const partition = partitionSidebarThreads({
     threads,
+    openSpecThreads,
     scopedProjectKeys,
     delegatedUnderParent,
     serverConfigs,
@@ -557,6 +563,7 @@ function useSidebarThreads(input: {
         scopeKey: current.scopeKey,
         count: current.count + SETTLED_TAIL_PAGE_COUNT,
       })),
+    openSpecThreads,
     settledShelfExpanded,
     toggleSettledShelf: () => setSettledShelfExpanded((value) => !value),
     snoozedShelfExpanded,
@@ -653,7 +660,9 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   }
   // A loaded config gates dragging only; the sort must not depend on it, so web and mobile agree.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-  const sortedActive = sortThreadsByStatus(active, inboxObservation.returnedAt);
+  const sortedActive = sortThreadsByStatus(active, inboxObservation.returnedAt, (thread) =>
+    input.openSpecThreads.has(threadShellKey(thread)),
+  );
   return {
     pinnedThreads:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -1293,6 +1302,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
 
   const {
+    openSpecThreads,
     workingShelfEnabled,
     pinnedThreads,
     draggableThreadKeys,
@@ -2009,6 +2019,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settledThreads,
           activeThreads,
           workingShelfEnabled,
+          openSpecThreads,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,

@@ -1,13 +1,13 @@
-// Fork-only: answers a framework spec's questions.yml from the thread screen.
+// Fork-only: answers a spec's questions from the thread screen.
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   parseSpecQuestionSource,
+  specDocPath,
   specFilePath,
   type ThreadSpec,
 } from "@t3tools/client-runtime/state/spec-questions";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { SPEC_COMMENT_AUTHOR } from "@t3tools/shared/specQuestions";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import Animated, { useAnimatedStyle, type DerivedValue } from "react-native-reanimated";
@@ -74,7 +74,7 @@ export function SpecQuestionsCard(props: {
     if (result._tag === "Failure") {
       const error = squashAtomCommandFailure(result);
       Dialog.alert(
-        "Could not update questions.yml",
+        `Could not update ${spec.questionsPath}`,
         error instanceof Error ? error.message : String(error),
       );
       return;
@@ -138,7 +138,7 @@ export function SpecQuestionsCard(props: {
             <Pressable
               accessibilityRole="link"
               accessibilityLabel={`Open spec ${spec.title ?? spec.slug}`}
-              onPress={() => openFile(specFilePath(spec, "spec.md"))}
+              onPress={() => openFile(specDocPath(spec))}
               className="flex-row items-center gap-1 active:opacity-70"
             >
               <SymbolView name="doc.text" size={12} tintColorClassName="accent-icon-subtle" />
@@ -324,20 +324,22 @@ export function SpecQuestionsCard(props: {
               (handedOff) =>
                 handedOff
                   ? "All questions answered. Asked the agent to review and replan."
-                  : `Saved the answer to Q${question.number} in questions.yml`,
+                  : `Saved the answer to Q${question.number}`,
             )
           }
         />
-        <Button
-          label="Comment"
-          disabled={locked || trimmedNote === ""}
-          onPress={() =>
-            void run(
-              () => actions.comment(question, SPEC_COMMENT_AUTHOR, trimmedNote),
-              `Commented on Q${question.number}`,
-            )
-          }
-        />
+        {spec.commentAuthor !== null ? (
+          <Button
+            label="Comment"
+            disabled={locked || trimmedNote === ""}
+            onPress={() =>
+              void run(
+                () => actions.comment(question, spec.commentAuthor!, trimmedNote),
+                `Commented on Q${question.number}`,
+              )
+            }
+          />
+        ) : null}
         <Button
           label="Assign to…"
           tone="text"

@@ -68,23 +68,24 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **Mobile:** active rows can no longer move up or down (Move up/down is pinned-only in `HomeScreen.tsx`, `ThreadNavigationSidebar.tsx`, `useThreadListV2.ts`; `ThreadArrangementSheet.tsx` refuses moves inside the active section).
 - **Rebase risk:** medium. Upstream's list sort options (`sortActiveBySend`, order keys, the Working shelf) may change; keep this sort for the active section on both clients.
 
-### 8. Spec questions in the thread
+### 8. Spec questions in any thread
 
-- **Goal:** answer a framework spec's open questions (pb-questions `questions.yml`) without leaving T3, and see the spec and its Company OS ticket from the thread.
+- **Goal:** answer a spec's open questions without leaving T3, see the spec and its ticket from the thread, and have threads waiting on an answer rise to the top. Works with any spec system that uses this format.
 - **What:**
-  - A thread whose branch leaf or title is a spec slug (`YYYY-MM-name`) finds `specs/<slug>/spec.md` in its worktree, attached folders or any project root, in that order.
-  - Details panel: a "Spec" section (toggle "Spec and ticket") with the spec title (opens `spec.md`), the `cos:` ticket key linking to `https://os.seniorverse.dev/dev/<n>`, and "N open questions" (opens the drawer).
-  - Composer drawer: question, heading, source link (opens the file at that line), assignee, priority, lettered options with the Recommended badge and why, comments. Actions: Answer (letter, letter plus tweak, or free text), Comment, Assign to…, Skip for now, previous/next. With an agent question open too, "Agent question" and "Spec questions · N" tabs switch between them, each keeping its own expanded state.
-  - Answers only write `questions.yml`; nothing goes to the agent per answer. When the last open question is answered, the thread gets one message: answers are complete, review them, apply per pb-questions and replan, with the file's full path.
-  - Every write re-reads the file first and edits one field with the `yaml` Document API, so the rest of the file stays byte-identical. The file re-reads when a turn ends. pb-cos sync carries edits to the ticket; T3 never calls Company OS.
-- **Mobile:** the thread screen shows a spec questions card where the agent question card goes, with the same fields and actions; a segmented control switches between "Agent question" and "Spec questions · N". Mobile has no details panel, so the spec title (opens `spec.md`) and the ticket link sit in the card header; files open in the `ThreadFile` viewer. The summary is hidden once every question is answered.
+  - One format: `questions.yml` as the framework's `pb-questions` defines it. A folder spec keeps it as a file; a single-file spec keeps the same YAML in a fenced block under `## Open Questions`.
+  - A thread's slug is its title, then its branch's last part, in any lowercase kebab form. T3 looks in its worktree, attached folders and projects, in that order.
+  - Each repo can commit a `t3-specs.json` listing spec paths, ticket link, comment name and answers-complete message. With none, T3 uses `specs/<slug>/spec.md` and `questions.yml`, with no ticket link and no Comment button.
+  - Details panel: a "Spec" section with the title, ticket link and open-question count. Composer card (web) and thread-screen card (mobile): every question field, plus Answer, Comment, Assign to…, Skip for now, previous/next, and tabs when an agent question is open too.
+  - Answers only write the file. When the last open question is answered, the thread gets one message from the config's template.
+  - Every write re-reads the file first and changes one field, so the rest of the file stays as written. An open file in the Files panel re-reads after each save.
+  - Needs input: a thread with any open question, whoever it is assigned to, shows Input and sorts into the top group. Running turns, failures and other requests keep their status; settled threads are not read. Files re-read when a turn ends and when the app regains focus, so outside edits can lag until then.
 - **Where:**
-  - Pure parsing and editing: `packages/shared/src/specQuestions.ts` (+ test, `./specQuestions` export).
-  - Discovery atoms and actions: `packages/client-runtime/src/state/specQuestions.ts` (+ test, `./state/spec-questions` export).
-  - Web: `apps/web/src/specQuestionsState.ts` (hooks and drawer UI store), `apps/web/src/components/chat/{ComposerSpecQuestionsPanel,ThreadSpecPanel}.tsx`, wired in `ChatComposer.tsx`, `ThreadDetailsPanel.tsx`, `threadDetailsItems.ts`.
-  - Mobile: `apps/mobile/src/state/specQuestions.ts` (hooks), `apps/mobile/src/features/threads/SpecQuestionsCard.tsx`, wired in `ThreadDetailScreen.tsx`.
-- **Known limits:** the comment author is the constant `SPEC_COMMENT_AUTHOR` ("Dean Mraz") in `packages/shared/src/specQuestions.ts`. The Company OS base URL is fixed there too.
-- **Check after a rebase:** a thread titled with a spec slug shows the Spec section and the drawer; answering writes only the `answer:` line.
+  - Format and config: `packages/shared/src/specQuestions.ts` (+ test, `./specQuestions` export).
+  - Discovery, actions, status: `packages/client-runtime/src/state/specQuestions.ts` (+ test, `./state/spec-questions` export).
+  - Web: `apps/web/src/specQuestionsState.ts`, `apps/web/src/components/chat/{ComposerSpecQuestionsPanel,ThreadSpecPanel}.tsx`, `ChatComposer.tsx`, `ThreadDetailsPanel.tsx`, `threadDetailsItems.ts`, `Sidebar.tsx`, `sidebar/SidebarThreadRow.tsx`, `sidebarStatusSort.ts`, `chat/RightPanelSurfaceContent.tsx`.
+  - Mobile: `apps/mobile/src/state/specQuestions.ts`, `apps/mobile/src/features/threads/{SpecQuestionsCard.tsx,ThreadDetailScreen.tsx,threadListV2.ts,useThreadListV2.ts,thread-list-v2-items.tsx}`.
+- **Known limits:** the comment name is per repo, so everyone using a repo's config signs as that name. A spec created after its thread loads appears after a reload.
+- **Check after an update:** a thread named after a folder spec and one named after a single-file spec each show the card and the Input status; answering changes only that `answer` line.
 
 ## Surfaces
 

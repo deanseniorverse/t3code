@@ -20,7 +20,9 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
+import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
+import { useThreadHasOpenSpecQuestions } from "../../state/specQuestions";
 import {
   formatWorkingDurationLabel,
   resolveThreadWorkingStartedAt,
@@ -686,7 +688,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const selected = props.selected === true;
   const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
 
-  const status = resolveThreadListV2Status(thread);
+  const status = statusWithOpenSpecQuestions(
+    resolveThreadListV2Status(thread),
+    thread,
+    useThreadHasOpenSpecQuestions(thread),
+  );
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;

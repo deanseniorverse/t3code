@@ -59,7 +59,9 @@ import {
   type ReactNode,
 } from "react";
 
+import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { useThreadHasOpenSpecQuestions } from "../../specQuestionsState";
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
 import { useUiStateStore } from "../../uiStateStore";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
@@ -706,7 +708,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : null;
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
-  const status = resolveSidebarThreadStatus(thread);
+  const hasOpenSpecQuestions = useThreadHasOpenSpecQuestions(thread);
+  const status = statusWithOpenSpecQuestions(
+    resolveSidebarThreadStatus(thread),
+    thread,
+    hasOpenSpecQuestions,
+  );
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =

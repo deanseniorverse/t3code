@@ -1,4 +1,4 @@
-// Fork-only: the thread's framework spec, its Company OS ticket and open questions.
+// Fork-only: the thread's spec, its ticket link and open questions.
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { FileTextIcon, MessageCircleQuestionIcon, TicketIcon } from "lucide-react";
@@ -8,7 +8,7 @@ import { useSpecQuestionsUi, useThreadSpec } from "../../specQuestionsState";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { THREAD_DETAILS_PANEL_ICON_CLASS } from "./threadDetailsPanelStyles";
-import { specFilePath } from "@t3tools/client-runtime/state/spec-questions";
+import { specDocPath } from "@t3tools/client-runtime/state/spec-questions";
 
 /** Hidden unless the thread's branch or title names a spec found in one of its folders or projects. */
 export function ThreadSpecPanel(props: {
@@ -28,9 +28,7 @@ export function ThreadSpecPanel(props: {
           variant="ghost"
           part="row"
           multiline
-          onClick={() =>
-            useRightPanelStore.getState().openFile(threadRef, specFilePath(spec, "spec.md"))
-          }
+          onClick={() => useRightPanelStore.getState().openFile(threadRef, specDocPath(spec))}
         >
           <FileTextIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
           <span className="min-w-0 truncate">{spec.title ?? spec.slug}</span>

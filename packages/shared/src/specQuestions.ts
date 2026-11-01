@@ -1,12 +1,39 @@
-// Fork-only: reads and answers a framework spec's questions.yml (see pb-questions).
+// Fork-only: reads and answers a spec's questions, in a questions.yml or a fenced YAML block.
 import { isMap, isSeq, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 
-const SPEC_SLUG_PATTERN = /^\d{4}-\d{2}-[a-z0-9][a-z0-9-]*$/;
-const COS_TICKET_PATTERN = /^D-(\d+)$/;
-const COS_BASE_URL = "https://os.seniorverse.dev";
+const SPEC_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const OPEN_QUESTIONS_SECTION = /^## Open Questions[ \t]*$([\s\S]*?)(?=^## |(?![\s\S]))/im;
+const QUESTIONS_FENCE = /^```ya?ml[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m;
+const DEFAULT_COMPLETE_MESSAGE =
+  "Answers are complete for {slug}: every question in {path} has an answer. Review them, apply them, and replan the spec.";
 
-// Company OS name written on comments; questions.yml comments carry a person's full name.
-export const SPEC_COMMENT_AUTHOR = "Dean Mraz";
+/** A spec's main file, and its questions file. With no `questions`, they are a block in `doc`. */
+export interface SpecLocation {
+  readonly doc: string;
+  readonly questions: string | null;
+}
+
+export interface SpecTicketConfig {
+  readonly field: string;
+  readonly pattern: string;
+  readonly url: string;
+}
+
+export interface SpecsConfig {
+  readonly specs: ReadonlyArray<SpecLocation>;
+  readonly ticket: SpecTicketConfig | null;
+  readonly commentAuthor: string | null;
+  readonly completeMessage: string;
+}
+
+export const SPECS_CONFIG_FILE = "t3-specs.json";
+
+export const DEFAULT_SPECS_CONFIG: SpecsConfig = {
+  specs: [{ doc: "specs/{slug}/spec.md", questions: "specs/{slug}/questions.yml" }],
+  ticket: null,
+  commentAuthor: null,
+  completeMessage: DEFAULT_COMPLETE_MESSAGE,
+};
 
 export interface SpecQuestionOption {
   readonly key: string;
@@ -38,19 +65,48 @@ export interface SpecSummary {
   readonly ticket: { readonly key: string; readonly url: string } | null;
 }
 
-/** pb-t3 names spec threads (and their branches) after the slug. */
+const nonEmptyString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value : null;
+
+/** A missing or broken config falls back to the defaults, so a bad file cannot break the thread. */
+export function parseSpecsConfig(json: string): SpecsConfig {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return DEFAULT_SPECS_CONFIG;
+  }
+  if (raw === null || typeof raw !== "object") return DEFAULT_SPECS_CONFIG;
+  const entries = Array.isArray(raw.specs) ? raw.specs : [];
+  const specs = entries.flatMap((entry: Record<string, unknown> | null): SpecLocation[] => {
+    const doc = nonEmptyString(entry?.doc);
+    return doc === null ? [] : [{ doc, questions: nonEmptyString(entry?.questions) }];
+  });
+  const ticket = raw.ticket as Record<string, unknown> | null | undefined;
+  const field = nonEmptyString(ticket?.field);
+  const pattern = nonEmptyString(ticket?.pattern);
+  const url = nonEmptyString(ticket?.url);
+  return {
+    specs: specs.length > 0 ? specs : DEFAULT_SPECS_CONFIG.specs,
+    ticket: field && pattern && url ? { field, pattern, url } : null,
+    commentAuthor: nonEmptyString(raw.commentAuthor),
+    completeMessage: nonEmptyString(raw.completeMessage) ?? DEFAULT_COMPLETE_MESSAGE,
+  };
+}
+
+export function fillSpecPath(template: string, slug: string): string {
+  return template.replaceAll("{slug}", slug);
+}
+
+/** A thread names its spec by title, then by its branch's last part; related specs can share a branch. */
 export function specSlugForThread(thread: {
   readonly branch: string | null;
   readonly title: string;
 }): string | null {
-  const branchLeaf = thread.branch?.split("/").at(-1) ?? null;
-  if (branchLeaf !== null && SPEC_SLUG_PATTERN.test(branchLeaf)) return branchLeaf;
   const title = thread.title.trim();
-  return SPEC_SLUG_PATTERN.test(title) ? title : null;
-}
-
-export function specDirectory(slug: string): string {
-  return `specs/${slug}`;
+  if (SPEC_SLUG_PATTERN.test(title)) return title;
+  const branchLeaf = thread.branch?.split("/").at(-1) ?? null;
+  return branchLeaf !== null && SPEC_SLUG_PATTERN.test(branchLeaf) ? branchLeaf : null;
 }
 
 const text = (value: unknown): string | null => {
@@ -59,18 +115,47 @@ const text = (value: unknown): string | null => {
   return result.length > 0 ? result : null;
 };
 
-export function parseSpecSummary(markdown: string): SpecSummary {
+function resolveSpecTicket(frontMatter: string | undefined, config: SpecTicketConfig | null) {
+  if (!frontMatter || config === null) return null;
+  const key = text(parseDocument(frontMatter).toJS({ maxAliasCount: 0 })?.[config.field]);
+  if (key === null) return null;
+  let match: RegExpExecArray | null;
+  try {
+    match = new RegExp(config.pattern).exec(key);
+  } catch {
+    return null;
+  }
+  if (match === null) return null;
+  const groups = match;
+  return { key, url: config.url.replace(/\{(\d+)\}/g, (_, index) => groups[Number(index)] ?? "") };
+}
+
+export function parseSpecSummary(markdown: string, ticket: SpecTicketConfig | null): SpecSummary {
   const frontMatter = /^---\n([\s\S]*?)\n---/.exec(markdown)?.[1];
-  const cos = frontMatter ? text(parseDocument(frontMatter).toJS({ maxAliasCount: 0 })?.cos) : null;
-  const ticketNumber = cos === null ? null : COS_TICKET_PATTERN.exec(cos)?.[1];
   const title = /^# (.+)$/m.exec(markdown.replace(/^---\n[\s\S]*?\n---/, ""))?.[1]?.trim();
-  return {
-    title: title ?? null,
-    ticket:
-      cos !== null && ticketNumber !== undefined
-        ? { key: cos, url: `${COS_BASE_URL}/dev/${ticketNumber}` }
-        : null,
-  };
+  return { title: title ?? null, ticket: resolveSpecTicket(frontMatter, ticket) };
+}
+
+/** Where the YAML sits in a spec file: the first fence under its Open Questions section. */
+function findQuestionsBlock(
+  markdown: string,
+): { readonly start: number; readonly end: number } | null {
+  const section = OPEN_QUESTIONS_SECTION.exec(markdown);
+  if (section === null) return null;
+  const fence = QUESTIONS_FENCE.exec(section[1] ?? "");
+  if (fence === null) return null;
+  const sectionBody = section.index + section[0].length - (section[1] ?? "").length;
+  const start = sectionBody + fence.index + fence[0].indexOf(fence[1] ?? "");
+  return { start, end: start + (fence[1] ?? "").length };
+}
+
+const isMarkdownPath = (path: string) => /\.(md|markdown)$/i.test(path);
+
+/** The questions in a spec's questions file, whichever way it holds them. */
+export function readSpecQuestions(path: string, contents: string): SpecQuestion[] {
+  if (!isMarkdownPath(path)) return parseSpecQuestions(contents);
+  const block = findQuestionsBlock(contents);
+  return block === null ? [] : parseSpecQuestions(contents.slice(block.start, block.end));
 }
 
 export function parseSpecQuestions(yamlText: string): SpecQuestion[] {
@@ -132,11 +217,7 @@ export type SpecQuestionEdit =
  * Applies one people-owned edit and keeps the rest of the file as written. Returns null when the
  * question is gone, for example because an agent applied it meanwhile.
  */
-export function editSpecQuestion(
-  yamlText: string,
-  number: number,
-  edit: SpecQuestionEdit,
-): string | null {
+function editSpecQuestion(yamlText: string, number: number, edit: SpecQuestionEdit): string | null {
   const document = parseDocument(yamlText);
   const list = document.get("questions");
   if (!isSeq(list)) return null;
@@ -177,6 +258,20 @@ export function editSpecQuestion(
 }
 
 // The full path, because spec threads usually run in another repo with the framework attached.
-export function specAnswersCompleteMessage(slug: string, root: string): string {
-  return `Answers are complete for ${slug}: every question in ${root}/${specDirectory(slug)}/questions.yml has an answer. Review them, apply them per pb-questions, and replan the spec.`;
+/** `editSpecQuestion` for a whole file or a markdown block; the rest of the file is unchanged. */
+export function editSpecQuestionsFile(
+  path: string,
+  contents: string,
+  number: number,
+  edit: SpecQuestionEdit,
+): string | null {
+  if (!isMarkdownPath(path)) return editSpecQuestion(contents, number, edit);
+  const block = findQuestionsBlock(contents);
+  if (block === null) return null;
+  const next = editSpecQuestion(contents.slice(block.start, block.end), number, edit);
+  return next === null ? null : contents.slice(0, block.start) + next + contents.slice(block.end);
+}
+
+export function specAnswersCompleteMessage(template: string, slug: string, path: string): string {
+  return template.replaceAll("{slug}", slug).replaceAll("{path}", path);
 }

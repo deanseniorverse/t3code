@@ -1,12 +1,15 @@
-// Fork-only: a thread's framework spec, its Company OS ticket and its open questions.
+// Fork-only: a thread's spec, its ticket link and its open questions.
 import type { EnvironmentId, MessageId, ProjectReadFileResult } from "@t3tools/contracts";
 import {
-  editSpecQuestion,
+  DEFAULT_SPECS_CONFIG,
+  editSpecQuestionsFile,
+  fillSpecPath,
   openSpecQuestions,
-  parseSpecQuestions,
+  parseSpecsConfig,
   parseSpecSummary,
+  readSpecQuestions,
+  SPECS_CONFIG_FILE,
   specAnswersCompleteMessage,
-  specDirectory,
   specSlugForThread,
   type SpecQuestion,
   type SpecQuestionEdit,
@@ -20,8 +23,14 @@ import type { EnvironmentProject, EnvironmentThreadShell } from "./models.ts";
 import { squashAtomCommandFailure, type AtomCommandResult } from "./runtime.ts";
 
 export interface ThreadSpec extends SpecSummary {
+  readonly environmentId: EnvironmentId;
   readonly slug: string;
   readonly root: string;
+  /** Relative to `root`. Single-file specs use the same path for both. */
+  readonly docPath: string;
+  readonly questionsPath: string;
+  readonly commentAuthor: string | null;
+  readonly completeMessage: string;
   readonly questions: ReadonlyArray<SpecQuestion>;
   readonly openQuestions: ReadonlyArray<SpecQuestion>;
 }
@@ -40,15 +49,21 @@ function specFileTarget(
 }
 
 export function specQuestionsFileTarget(
-  environmentId: EnvironmentId,
-  spec: Pick<ThreadSpec, "slug" | "root">,
+  spec: Pick<ThreadSpec, "environmentId" | "root" | "questionsPath">,
 ): SpecFileTarget {
-  return specFileTarget(environmentId, spec.root, `${specDirectory(spec.slug)}/questions.yml`);
+  return specFileTarget(spec.environmentId, spec.root, spec.questionsPath);
 }
 
-/** Absolute path of a file in the spec's folder, e.g. `spec.md` or a question's source. */
-export function specFilePath(spec: Pick<ThreadSpec, "slug" | "root">, file: string): string {
-  return `${spec.root}/${specDirectory(spec.slug)}/${file}`;
+export function specDocPath(spec: Pick<ThreadSpec, "root" | "docPath">): string {
+  return `${spec.root}/${spec.docPath}`;
+}
+
+/** Absolute path of a question's `source`, which is relative to the spec's folder. */
+export function specFilePath(spec: Pick<ThreadSpec, "root" | "docPath">, file: string): string {
+  const folder = spec.docPath.includes("/")
+    ? spec.docPath.slice(0, spec.docPath.lastIndexOf("/"))
+    : "";
+  return folder ? `${spec.root}/${folder}/${file}` : `${spec.root}/${file}`;
 }
 
 /** Splits a question's `source` (`file` or `file:line`) for opening it. */
@@ -96,31 +111,108 @@ export function createThreadSpecAtoms<E>(
   const family = Atom.family((key: string) =>
     Atom.make((get): ThreadSpec | null => {
       const [environmentId, slug, roots] = JSON.parse(key) as [EnvironmentId, string, string[]];
-      const directory = specDirectory(slug);
       for (const root of roots) {
-        const spec = get(readFile(specFileTarget(environmentId, root, `${directory}/spec.md`)));
-        if (!AsyncResult.isSuccess(spec)) {
-          if (AsyncResult.isFailure(spec)) continue;
-          return null;
+        const configFile = get(readFile(specFileTarget(environmentId, root, SPECS_CONFIG_FILE)));
+        if (AsyncResult.isFailure(configFile)) continue;
+        if (!AsyncResult.isSuccess(configFile)) return null;
+        const config =
+          configFile.value.exists === false
+            ? DEFAULT_SPECS_CONFIG
+            : parseSpecsConfig(configFile.value.contents);
+        for (const location of config.specs) {
+          const docPath = fillSpecPath(location.doc, slug);
+          const doc = get(readFile(specFileTarget(environmentId, root, docPath)));
+          if (AsyncResult.isFailure(doc)) continue;
+          if (!AsyncResult.isSuccess(doc)) return null;
+          if (doc.value.exists === false) continue;
+          const questionsPath = location.questions
+            ? fillSpecPath(location.questions, slug)
+            : docPath;
+          const questionsFile =
+            questionsPath === docPath
+              ? doc
+              : get(readFile(specFileTarget(environmentId, root, questionsPath)));
+          const questions =
+            AsyncResult.isSuccess(questionsFile) && questionsFile.value.exists !== false
+              ? readSpecQuestions(questionsPath, questionsFile.value.contents)
+              : [];
+          return {
+            environmentId,
+            slug,
+            root,
+            docPath,
+            questionsPath,
+            commentAuthor: config.commentAuthor,
+            completeMessage: config.completeMessage,
+            ...parseSpecSummary(doc.value.contents, config.ticket),
+            questions,
+            openQuestions: openSpecQuestions(questions),
+          };
         }
-        if (spec.value.exists === false) continue;
-        const questionsFile = get(readFile(specQuestionsFileTarget(environmentId, { slug, root })));
-        const questions =
-          AsyncResult.isSuccess(questionsFile) && questionsFile.value.exists !== false
-            ? parseSpecQuestions(questionsFile.value.contents)
-            : [];
-        return {
-          slug,
-          root,
-          ...parseSpecSummary(spec.value.contents),
-          questions,
-          openQuestions: openSpecQuestions(questions),
-        };
       }
       return null;
     }).pipe(Atom.withLabel(`thread-spec:${key}`)),
   );
-  return { threadSpecAtom: (key: string | null) => (key === null ? noSpecAtom : family(key)) };
+  const listFamily = Atom.family((listKey: string) =>
+    Atom.make((get): ReadonlyMap<string, ThreadSpec> => {
+      const entries = JSON.parse(listKey) as ReadonlyArray<readonly [string, string]>;
+      const specs = new Map<string, ThreadSpec>();
+      for (const [threadKey, specKey] of entries) {
+        const spec = get(family(specKey));
+        if (spec !== null) specs.set(threadKey, spec);
+      }
+      return specs;
+    }).pipe(Atom.withLabel("thread-specs")),
+  );
+  return {
+    threadSpecAtom: (key: string | null) => (key === null ? noSpecAtom : family(key)),
+    threadSpecsAtom: listFamily,
+  };
+}
+
+/** Key for `threadSpecsAtom`: the threads worth reading, by the key the caller looks them up with. */
+export function threadSpecsKey(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  projects: ReadonlyArray<EnvironmentProject>,
+  threadKey: (thread: EnvironmentThreadShell) => string,
+): string {
+  return JSON.stringify(
+    threads.flatMap((thread) => {
+      const key = threadSpecKey(thread, projects);
+      return key === null ? [] : [[threadKey(thread), key]];
+    }),
+  );
+}
+
+/** Reads to repeat so a list's specs stay current: both of each found spec's files. */
+export function threadSpecRefreshTargets(
+  specs: ReadonlyMap<string, ThreadSpec>,
+): ReadonlyArray<SpecFileTarget> {
+  const targets = new Map<string, SpecFileTarget>();
+  for (const spec of specs.values()) {
+    for (const path of new Set([spec.docPath, spec.questionsPath])) {
+      const target = specFileTarget(spec.environmentId, spec.root, path);
+      targets.set(JSON.stringify(target), target);
+    }
+  }
+  return [...targets.values()];
+}
+
+/** Settled threads can be many and are finished with, so their spec files are not read. */
+export function isSpecListThread(thread: Pick<EnvironmentThreadShell, "settledOverride">): boolean {
+  return thread.settledOverride !== "settled";
+}
+
+/** An open spec question is needs input once nothing else is happening on the thread. */
+export function statusWithOpenSpecQuestions<S extends string>(
+  status: S,
+  thread: { readonly runtime: { readonly status: string } | null },
+  hasOpenQuestions: boolean,
+): S | "input" {
+  if (!hasOpenQuestions) return status;
+  return status === "ready" || (status === "waiting" && thread.runtime?.status === "idle")
+    ? "input"
+    : status;
 }
 
 type SpecQuestionThread = Pick<
@@ -149,11 +241,17 @@ export function createSpecQuestionActions(options: {
   // Re-read before each edit, so a change an agent made meanwhile is not overwritten.
   const save = async (question: SpecQuestion, edit: SpecQuestionEdit): Promise<string | null> => {
     if (spec === null || thread === null) return null;
-    const target = specQuestionsFileTarget(thread.environmentId, spec);
+    const target = specQuestionsFileTarget(spec);
     const current = await options.readFile(target);
     if (current._tag === "Failure") throw squashAtomCommandFailure(current);
-    const next = editSpecQuestion(current.value.contents, question.number, edit);
-    if (next === null) throw new Error(`Q${question.number} is no longer in questions.yml.`);
+    const next = editSpecQuestionsFile(
+      spec.questionsPath,
+      current.value.contents,
+      question.number,
+      edit,
+    );
+    if (next === null)
+      throw new Error(`Q${question.number} is no longer in ${spec.questionsPath}.`);
     const written = await options.writeFile({
       environmentId: thread.environmentId,
       input: { cwd: target.input.cwd, relativePath: target.input.relativePath, contents: next },
@@ -167,7 +265,7 @@ export function createSpecQuestionActions(options: {
   const answer = async (question: SpecQuestion, value: string): Promise<boolean> => {
     const next = await save(question, { kind: "answer", answer: value });
     if (next === null || thread === null || spec === null) return false;
-    if (openSpecQuestions(parseSpecQuestions(next)).length > 0) return false;
+    if (openSpecQuestions(readSpecQuestions(spec.questionsPath, next)).length > 0) return false;
     const sent = await options.startTurn({
       environmentId: thread.environmentId,
       input: {
@@ -175,7 +273,11 @@ export function createSpecQuestionActions(options: {
         message: {
           messageId: options.newMessageId(),
           role: "user",
-          text: specAnswersCompleteMessage(spec.slug, spec.root),
+          text: specAnswersCompleteMessage(
+            spec.completeMessage,
+            spec.slug,
+            `${spec.root}/${spec.questionsPath}`,
+          ),
           attachments: [],
         },
         modelSelection: thread.modelSelection,

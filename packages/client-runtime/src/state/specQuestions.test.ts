@@ -1,9 +1,9 @@
 import { EnvironmentId, MessageId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import { parseSpecQuestions, specAnswersCompleteMessage } from "@t3tools/shared/specQuestions";
+import { parseSpecQuestions } from "@t3tools/shared/specQuestions";
 import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createSpecQuestionActions } from "./specQuestions.ts";
+import { createSpecQuestionActions, statusWithOpenSpecQuestions } from "./specQuestions.ts";
 
 const environmentId = EnvironmentId.make("environment-local");
 const thread = {
@@ -37,7 +37,17 @@ function harness(initial: string) {
     return AsyncResult.success(undefined);
   });
   const startTurn = vi.fn(async () => AsyncResult.success(undefined));
-  const spec = { slug: "2026-10-photos", root: "/repo", title: null, ticket: null };
+  const spec = {
+    environmentId,
+    slug: "2026-10-photos",
+    root: "/repo",
+    docPath: "specs/2026-10-photos/spec.md",
+    questionsPath: "specs/2026-10-photos/questions.yml",
+    commentAuthor: null,
+    completeMessage: "Done {slug}: {path}",
+    title: null,
+    ticket: null,
+  };
   const actions = createSpecQuestionActions({
     thread,
     spec: { ...spec, questions: [], openQuestions: [] },
@@ -71,7 +81,7 @@ describe("createSpecQuestionActions", () => {
         message: {
           messageId: "message-1",
           role: "user",
-          text: specAnswersCompleteMessage("2026-10-photos", "/repo"),
+          text: "Done 2026-10-photos: /repo/specs/2026-10-photos/questions.yml",
           attachments: [],
         },
         modelSelection: thread.modelSelection,
@@ -87,8 +97,22 @@ describe("createSpecQuestionActions", () => {
     const gone = { ...first!, number: 9 };
 
     await expect(h.actions.assign(gone, "Paul Staff")).rejects.toThrow(
-      "Q9 is no longer in questions.yml.",
+      "Q9 is no longer in specs/2026-10-photos/questions.yml.",
     );
     expect(h.writeFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("statusWithOpenSpecQuestions", () => {
+  const idle = { runtime: { status: "idle" } };
+  const running = { runtime: { status: "running" } };
+
+  it("flags a thread with nothing else happening, and leaves other statuses alone", () => {
+    expect(statusWithOpenSpecQuestions("ready", { runtime: null }, true)).toBe("input");
+    expect(statusWithOpenSpecQuestions("waiting", idle, true)).toBe("input");
+    expect(statusWithOpenSpecQuestions("waiting", running, true)).toBe("waiting");
+    expect(statusWithOpenSpecQuestions("working", running, true)).toBe("working");
+    expect(statusWithOpenSpecQuestions("failed", { runtime: null }, true)).toBe("failed");
+    expect(statusWithOpenSpecQuestions("ready", { runtime: null }, false)).toBe("ready");
   });
 });

@@ -15,6 +15,7 @@ import { ThreadRepoPills, threadRepoRoots } from "../ThreadRepoPills";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
 import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
+import { useSpecQuestionsUi } from "../../specQuestionsState";
 import {
   PersistentThreadTerminalPanel,
   type PersistentThreadTerminalPanelProps,
@@ -79,6 +80,14 @@ export function RightPanelSurfaceContent(props: {
   readonly files: RightPanelFileProps;
 }) {
   const { surface, threadRef, visible } = props;
+  // A spec answer changes a file with no turn, so an open file needs its own signal to re-read.
+  const specSavedRevision = useSpecQuestionsUi(
+    (state) => state.savedRevisionByThread[scopedThreadKey(threadRef)] ?? 0,
+  );
+  const fileMutationId =
+    specSavedRevision === 0
+      ? props.workspaceMutationId
+      : `${props.workspaceMutationId ?? ""}:spec-${specSavedRevision}`;
   if (surface === null) return null;
   switch (surface.kind) {
     case "preview":
@@ -222,7 +231,7 @@ export function RightPanelSurfaceContent(props: {
             folderTrail={surface.folderTrail}
             onPendingChange={files.onPendingChange}
             selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
-            workspaceMutationId={props.workspaceMutationId}
+            workspaceMutationId={fileMutationId}
           />
         </Suspense>
       );
