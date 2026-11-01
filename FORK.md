@@ -6,12 +6,14 @@ Dean's fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code). This fil
 - List the fork's commits: `git log --reverse --oneline $(git merge-base deno upstream/main)..deno`.
 - Fork-only modules start with a `// Fork-only:` comment, so `git grep "Fork-only"` finds them.
 
-## Rebasing on upstream
+## Updating from upstream
 
-1. `git fetch upstream && git rebase upstream/main` on `deno`.
-2. For each conflict, keep the intent below, not the old code. When upstream ships the same idea, prefer theirs and drop the fork commit.
-3. `vp run check:changed`, then walk the "Check after a rebase" line of each feature in a dev server (`vp run dev`).
-4. Rebuild the desktop app only when asked: `vp run dist:desktop:dmg:arm64` with `GITHUB_REPOSITORY` and `T3CODE_DESKTOP_UPDATE_REPOSITORY` unset.
+Placeholder: we define this process the first time we take an upstream update. It should cover:
+
+- Reading what changed upstream since the last update.
+- Checking those changes against each feature below for conflicts.
+- Suggesting a fix for each conflict, including dropping a fork feature upstream now covers.
+- Rebasing, then running `vp run check:changed` and each feature's "Check after a rebase" line.
 
 ## Features
 
@@ -19,7 +21,8 @@ Dean's fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code). This fil
 
 - **Goal:** install the fork next to the official T3 Code (Beta) instead of replacing it.
 - **What:** its own product name, bundle id `com.t3tools.t3code.deno` and Electron profile folder, so window state, keychain item and single-instance lock are separate. Both apps share the same T3 home, so only one runs at a time.
-- **Where:** `apps/desktop/package.json`, `apps/desktop/src/app/DesktopEnvironment.ts`, `DesktopUserData.ts`, `packages/contracts/src/ipc.ts`, `scripts/build-desktop-artifact.ts` (+ tests).
+- **Update:** `scripts/update-deno-app.sh` builds this checkout, quits the app, installs and reopens it; `--no-build` skips the build, `--rollback` swaps back, `--restart` quits and reopens it, `--status` shows what is installed. It keeps working after the app quits, so an agent inside T3 Code can run it. If T3 Code is broken, run `claude` in Terminal from this folder and use `/update-deno-app`.
+- **Where:** `apps/desktop/package.json`, `apps/desktop/src/app/DesktopEnvironment.ts`, `DesktopUserData.ts`, `packages/contracts/src/ipc.ts`, `scripts/build-desktop-artifact.ts` (+ tests), `scripts/update-deno-app.sh`, `.agents/skills/update-deno-app/`.
 - **Rebase risk:** upstream changes to app identity or the artifact script. Re-apply the id and name.
 - **Check after a rebase:** the DMG installs as "T3 Code (Deno)" beside "T3 Code (Beta)".
 
