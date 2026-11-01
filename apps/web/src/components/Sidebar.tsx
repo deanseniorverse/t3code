@@ -342,6 +342,7 @@ interface SidebarThreadPartitionInput {
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
   readonly openSpecThreads: ReadonlySet<string>;
+  readonly favoriteThreadKeys: ReadonlySet<string> | null;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -459,9 +460,12 @@ function useSidebarThreads(input: {
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const openSpecThreads = useOpenSpecThreads(threads, threadShellKey);
+  const favoritesOnly = useUiStateStore((store) => store.sidebarFavoritesOnly);
+  const favoriteThreadKeyList = useUiStateStore((store) => store.favoriteThreadKeys);
   const partition = partitionSidebarThreads({
     threads,
     openSpecThreads,
+    favoriteThreadKeys: favoritesOnly ? new Set(favoriteThreadKeyList) : null,
     scopedProjectKeys,
     delegatedUnderParent,
     serverConfigs,
@@ -604,7 +608,11 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     workingShelfEnabled,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const scoped = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const visible =
+    input.favoriteThreadKeys === null
+      ? scoped
+      : scoped.filter((thread) => input.favoriteThreadKeys?.has(threadShellKey(thread)));
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -1301,6 +1309,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  const sidebarFavoritesOnly = useUiStateStore((store) => store.sidebarFavoritesOnly);
+  const setSidebarFavoritesOnly = useUiStateStore((store) => store.setSidebarFavoritesOnly);
   const {
     openSpecThreads,
     workingShelfEnabled,
@@ -2624,6 +2634,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   }
                 : null,
               isPinned,
+              isFavorite: useUiStateStore
+                .getState()
+                .favoriteThreadKeys.includes(scopedThreadKey(threadRef)),
               isSettled,
               autoSettleEnabled: thread.autoSettleDisabledAt == null,
               isSnoozed,
@@ -2776,6 +2789,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
             return;
           }
+          case "toggle-favorite":
+            useUiStateStore.getState().toggleThreadFavorite(scopedThreadKey(threadRef));
+            return;
           case "mark-unread":
             markThreadUnread(threadRef);
             return;
@@ -2970,6 +2986,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
+              favoritesOnly={sidebarFavoritesOnly}
+              onToggleFavoritesOnly={() => setSidebarFavoritesOnly(!sidebarFavoritesOnly)}
               projectScope={
                 <Combobox
                   items={projectScopeItems}

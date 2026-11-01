@@ -20,6 +20,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKeys: [],
+    favoriteThreadKeys: [],
+    sidebarFavoritesOnly: false,
     sidebarEnvironmentScopeId: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -127,6 +129,8 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
+      favoriteThreadKeys: [],
+      sidebarFavoritesOnly: false,
       sidebarEnvironmentScopeId: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
@@ -233,6 +237,8 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
+      favoriteThreadKeys: [],
+      sidebarFavoritesOnly: false,
       sidebarProjectScopeKey: null,
       sidebarEnvironmentScopeId: null,
       threadChangedFilesExpansionVersion: 2,
@@ -261,6 +267,8 @@ describe("uiStateStore persistence", () => {
 
     expect(parsePersistedState(persisted)).toMatchObject({
       sidebarProjectScopeKeys: keys,
+      favoriteThreadKeys: [],
+      sidebarFavoritesOnly: false,
       sidebarEnvironmentScopeId: "environment-air",
     });
   });

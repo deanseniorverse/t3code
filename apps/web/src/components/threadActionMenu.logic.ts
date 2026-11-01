@@ -20,6 +20,7 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "toggle-favorite"
   | "share-guest"
   | "copy"
   | "copy-path"
@@ -76,6 +77,7 @@ export interface ThreadActionMenuState {
     readonly isActive: boolean;
   } | null;
   readonly isPinned: boolean;
+  readonly isFavorite?: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
@@ -104,6 +106,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "new-thread-on-branch",
     "project-settings",
     "mark-unread",
+    "toggle-favorite",
     "share-guest",
     "copy",
     "copy-path",
@@ -129,6 +132,15 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
+    ...(state.isFavorite === undefined
+      ? []
+      : [
+          {
+            id: "toggle-favorite" as const,
+            label: state.isFavorite ? "Remove from favorites" : "Add to favorites",
+            icon: "star",
+          },
+        ]),
     ...(state.supports.pinning
       ? [
           state.isPinned

@@ -28,6 +28,8 @@ export interface PersistedUiState {
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
+  favoriteThreadKeys?: string[];
+  sidebarFavoritesOnly?: boolean;
   sidebarEnvironmentScopeId?: string | null;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
@@ -38,6 +40,8 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   sidebarProjectScopeKeys: string[];
+  favoriteThreadKeys: string[];
+  sidebarFavoritesOnly: boolean;
   sidebarEnvironmentScopeId: string | null;
 }
 
@@ -61,6 +65,8 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKeys: [],
+  favoriteThreadKeys: [],
+  sidebarFavoritesOnly: false,
   sidebarEnvironmentScopeId: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
@@ -154,6 +160,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
+    favoriteThreadKeys: sanitizeStringArray(parsed.favoriteThreadKeys),
+    sidebarFavoritesOnly: parsed.sidebarFavoritesOnly === true,
     sidebarProjectScopeKeys: sanitizeStringArray(
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
     ),
@@ -232,6 +240,8 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
+        favoriteThreadKeys: state.favoriteThreadKeys,
+        sidebarFavoritesOnly: state.sidebarFavoritesOnly,
         // Older clients read only this field.
         sidebarProjectScopeKey:
           state.sidebarProjectScopeKeys.length === 1
@@ -446,6 +456,8 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setSidebarEnvironmentScopeId: (environmentId: string | null) => void;
+  toggleThreadFavorite: (threadKey: string) => void;
+  setSidebarFavoritesOnly: (favoritesOnly: boolean) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -467,6 +479,13 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKeys: (projectKeys) =>
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
+  toggleThreadFavorite: (threadKey) =>
+    set((state) => ({
+      favoriteThreadKeys: state.favoriteThreadKeys.includes(threadKey)
+        ? state.favoriteThreadKeys.filter((key) => key !== threadKey)
+        : [...state.favoriteThreadKeys, threadKey],
+    })),
+  setSidebarFavoritesOnly: (favoritesOnly) => set({ sidebarFavoritesOnly: favoritesOnly }),
   setSidebarEnvironmentScopeId: (environmentId) =>
     set((state) => setSidebarEnvironmentScopeId(state, environmentId)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),

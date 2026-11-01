@@ -87,6 +87,21 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **Known limits:** the comment name is per repo, so everyone using a repo's config signs as that name. A spec created after its thread loads appears after a reload.
 - **Check after an update:** a thread named after a folder spec and one named after a single-file spec each show the card and the Input status; answering changes only that `answer` line.
 
+### 9. Threads stay unread until you leave them
+
+- **Goal:** opening a Done thread for a quick look doesn't lose its Done status or make it jump in the list.
+- **What:** T3 sends a thread's visit when you move away from it, not while it is open, so its status and list position hold until then. Mark unread on the open thread stays. Closing or reloading the app with a thread open leaves it unread.
+- **Where:** `packages/client-runtime/src/state/threadVisits.ts` (+ test), used by web and mobile.
+- **Rebase risk:** medium. This replaces upstream's dispatch-while-viewing logic, so re-apply against any changes there.
+- **Check after an update:** open a Done thread; it stays Done. Open another thread; the first moves to the read group.
+
+### 10. Favorite threads
+
+- **Goal:** narrow a long thread list to what is in focus.
+- **What:** a star on each row (shown on hover, stays visible once on) and in the thread right-click menu. The star button beside the project filter switches the list between favorites and all threads. Both are saved per browser or app install, not on the server, so they don't sync between devices.
+- **Where:** `apps/web/src/uiStateStore.ts` (+ test), `components/Sidebar.tsx`, `sidebar/SidebarThreadHeader.tsx`, `sidebar/SidebarThreadRow.tsx`, `threadActionMenu.logic.ts`.
+- **Check after an update:** star a thread, turn on the filter, reload; only that thread shows and the filter is still on.
+
 ## Surfaces
 
 | Feature                                           | Web/desktop | Mobile                          |
@@ -97,3 +112,5 @@ Placeholder: we define this process the first time we take an upstream update. I
 | 6. Repo pills in Files/Diff                       | yes         | no                              |
 | 7. Status sort                                    | yes         | yes                             |
 | 8. Spec questions                                 | yes         | yes, summary in the card header |
+| 9. Unread until you leave                         | yes         | yes                             |
+| 10. Favorite threads                              | yes         | no                              |

@@ -1,4 +1,4 @@
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { FolderPlusIcon, SearchIcon, SquarePenIcon, StarIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,6 +16,8 @@ export interface SidebarThreadHeaderProps {
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   hasProjects: boolean;
   projectScope: ReactNode;
+  favoritesOnly: boolean;
+  onToggleFavoritesOnly: () => void;
   onNewProject: () => void;
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
@@ -36,6 +38,8 @@ export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
   projectScope,
+  favoritesOnly,
+  onToggleFavoritesOnly,
   onNewProject,
   onNewThread,
   newThreadDisabled,
@@ -104,6 +108,13 @@ export function SidebarThreadHeader({
       <div className="flex shrink-0 items-center">
         {hasProjects ? (
           <>
+            <SidebarHeaderIconButton
+              label={favoritesOnly ? "Show all threads" : "Show favorites only"}
+              aria-pressed={favoritesOnly}
+              onClick={onToggleFavoritesOnly}
+            >
+              <StarIcon className={cn(favoritesOnly && "fill-current")} />
+            </SidebarHeaderIconButton>
             {projectScope}
             <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
               <FolderPlusIcon />

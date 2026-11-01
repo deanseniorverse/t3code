@@ -44,6 +44,7 @@ import {
   PinOffIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
+  StarIcon,
   TerminalIcon,
   Undo2Icon,
   UserRoundIcon,
@@ -899,6 +900,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     event.stopPropagation();
     onUnsnooze(threadRef);
   };
+  const isFavorite = useUiStateStore((state) => state.favoriteThreadKeys.includes(threadKey));
+  const toggleThreadFavorite = useUiStateStore((state) => state.toggleThreadFavorite);
+  const handleFavoriteClick = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleThreadFavorite(threadKey);
+  };
   const handleUnpinClick = (event: ReactMouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1129,6 +1137,30 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     )
   ) : null;
 
+  const favoriteIndicator = sortable?.isDragging ? null : (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            aria-pressed={isFavorite}
+            onClick={handleFavoriteClick}
+            className={cn(
+              "inline-flex shrink-0 cursor-pointer items-center rounded-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              isFavorite
+                ? "text-warning-foreground hover:text-warning-foreground/80"
+                : "text-muted-foreground/65 opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/sidebar-row:opacity-100 group-focus-within/sidebar-row:opacity-100",
+            )}
+          />
+        }
+      >
+        <StarIcon aria-hidden className={cn("size-3", isFavorite && "fill-current")} />
+      </TooltipTrigger>
+      <TooltipPopup>{isFavorite ? "Remove from favorites" : "Add to favorites"}</TooltipPopup>
+    </Tooltip>
+  );
+
   const diff = latestRunDiff(thread);
   // Only the provider icon would remain, so the row drops the line instead of leaving it blank.
   const metaLineEmpty =
@@ -1261,6 +1293,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {title}
               {multiline ? titleLineProviderStack : null}
               {pinIndicator}
+              {favoriteIndicator}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
@@ -1438,14 +1471,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 label for the wider row controls. */}
               {pinIndicator}
               {props.projectDisplayName ? (
-                <span
-                  className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
-                >
+                <span className={cn("min-w-0 truncate font-normal text-secondary-label text-xs")}>
                   {props.projectDisplayName}
                 </span>
-              ) : (
-                <span className="flex-1" />
-              )}
+              ) : null}
+              {favoriteIndicator}
+              <span className="flex-1" />
               {sortable?.isDragging ? (
                 dragDestination
               ) : (
