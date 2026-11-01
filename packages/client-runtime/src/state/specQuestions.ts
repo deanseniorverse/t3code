@@ -29,7 +29,6 @@ export interface ThreadSpec extends SpecSummary {
   /** Relative to `root`. Single-file specs use the same path for both. */
   readonly docPath: string;
   readonly questionsPath: string;
-  readonly commentAuthor: string | null;
   readonly completeMessage: string;
   readonly questions: ReadonlyArray<SpecQuestion>;
   readonly openQuestions: ReadonlyArray<SpecQuestion>;
@@ -142,7 +141,6 @@ export function createThreadSpecAtoms<E>(
             root,
             docPath,
             questionsPath,
-            commentAuthor: config.commentAuthor,
             completeMessage: config.completeMessage,
             ...parseSpecSummary(doc.value.contents, config.ticket),
             questions,
@@ -292,10 +290,11 @@ export function createSpecQuestionActions(options: {
     answer,
     assign: (question: SpecQuestion, assignee: string) =>
       save(question, { kind: "assign", assignee }),
-    comment: (question: SpecQuestion, by: string, text: string) =>
+    // No name: a repo's config is shared, so signing is left to whatever syncs the file.
+    comment: (question: SpecQuestion, text: string) =>
       save(question, {
         kind: "comment",
-        comment: { by, at: DateTime.formatIsoDateUtc(DateTime.nowUnsafe()), text },
+        comment: { by: "", at: DateTime.formatIsoDateUtc(DateTime.nowUnsafe()), text },
       }),
   };
 }

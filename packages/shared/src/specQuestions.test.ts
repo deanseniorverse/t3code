@@ -63,7 +63,7 @@ describe("specQuestions", () => {
     expect(parseSpecsConfig("{ not json")).toBe(DEFAULT_SPECS_CONFIG);
     const config = parseSpecsConfig('{"specs":[{"doc":"tickets/{slug}.md"},{"questions":"x"}]}');
     expect(config.specs).toEqual([{ doc: "tickets/{slug}.md", questions: null }]);
-    expect(config.commentAuthor).toBeNull();
+    expect(config.ticket).toBeNull();
   });
 
   it("reads and answers a fenced block, leaving the rest of the spec file as written", () => {

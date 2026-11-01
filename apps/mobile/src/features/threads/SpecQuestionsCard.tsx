@@ -266,7 +266,9 @@ export function SpecQuestionsCard(props: {
             key={`${comment.by}:${comment.at}:${comment.text}`}
             className="font-sans text-xs leading-5 text-foreground-muted"
           >
-            <Text className="font-t3-bold text-xs text-foreground-secondary">{comment.by}</Text>
+            <Text className="font-t3-bold text-xs text-foreground-secondary">
+              {comment.by || "You"}
+            </Text>
             {comment.at ? ` · ${comment.at}` : ""}: {comment.text}
           </Text>
         ))}
@@ -328,18 +330,16 @@ export function SpecQuestionsCard(props: {
             )
           }
         />
-        {spec.commentAuthor !== null ? (
-          <Button
-            label="Comment"
-            disabled={locked || trimmedNote === ""}
-            onPress={() =>
-              void run(
-                () => actions.comment(question, spec.commentAuthor!, trimmedNote),
-                `Commented on Q${question.number}`,
-              )
-            }
-          />
-        ) : null}
+        <Button
+          label="Comment"
+          disabled={locked || trimmedNote === ""}
+          onPress={() =>
+            void run(
+              () => actions.comment(question, trimmedNote),
+              `Commented on Q${question.number}`,
+            )
+          }
+        />
         <Button
           label="Assign to…"
           tone="text"

@@ -22,7 +22,6 @@ export interface SpecTicketConfig {
 export interface SpecsConfig {
   readonly specs: ReadonlyArray<SpecLocation>;
   readonly ticket: SpecTicketConfig | null;
-  readonly commentAuthor: string | null;
   readonly completeMessage: string;
 }
 
@@ -31,7 +30,6 @@ export const SPECS_CONFIG_FILE = "t3-specs.json";
 export const DEFAULT_SPECS_CONFIG: SpecsConfig = {
   specs: [{ doc: "specs/{slug}/spec.md", questions: "specs/{slug}/questions.yml" }],
   ticket: null,
-  commentAuthor: null,
   completeMessage: DEFAULT_COMPLETE_MESSAGE,
 };
 
@@ -89,7 +87,6 @@ export function parseSpecsConfig(json: string): SpecsConfig {
   return {
     specs: specs.length > 0 ? specs : DEFAULT_SPECS_CONFIG.specs,
     ticket: field && pattern && url ? { field, pattern, url } : null,
-    commentAuthor: nonEmptyString(raw.commentAuthor),
     completeMessage: nonEmptyString(raw.completeMessage) ?? DEFAULT_COMPLETE_MESSAGE,
   };
 }

@@ -43,7 +43,6 @@ function harness(initial: string) {
     root: "/repo",
     docPath: "specs/2026-10-photos/spec.md",
     questionsPath: "specs/2026-10-photos/questions.yml",
-    commentAuthor: null,
     completeMessage: "Done {slug}: {path}",
     title: null,
     ticket: null,

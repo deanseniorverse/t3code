@@ -74,7 +74,8 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **What:**
   - One format: `questions.yml` as the framework's `pb-questions` defines it. A folder spec keeps it as a file; a single-file spec keeps the same YAML in a fenced block under `## Open Questions`.
   - A thread's slug is its title, then its branch's last part, in any lowercase kebab form. T3 looks in its worktree, attached folders and projects, in that order.
-  - Each repo can commit a `t3-specs.json` listing spec paths, ticket link, comment name and answers-complete message. With none, T3 uses `specs/<slug>/spec.md` and `questions.yml`, with no ticket link and no Comment button.
+  - Each repo can commit a `t3-specs.json` listing spec paths, ticket link and answers-complete message. With none, T3 uses `specs/<slug>/spec.md` and `questions.yml`, with no ticket link.
+  - `t3-specs.json` is shared with everyone working in that repo's factory setup, so it holds team-wide configuration only. Never put personal information in it, such as a person's name or a token.
   - Details panel: a "Spec" section with the title, ticket link and open-question count. Composer card (web) and thread-screen card (mobile): every question field, plus Answer, Comment, Assign to…, Skip for now, previous/next, and tabs when an agent question is open too.
   - Answers only write the file. When the last open question is answered, the thread gets one message from the config's template.
   - Every write re-reads the file first and changes one field, so the rest of the file stays as written. An open file in the Files panel re-reads after each save.
@@ -84,7 +85,7 @@ Placeholder: we define this process the first time we take an upstream update. I
   - Discovery, actions, status: `packages/client-runtime/src/state/specQuestions.ts` (+ test, `./state/spec-questions` export).
   - Web: `apps/web/src/specQuestionsState.ts`, `apps/web/src/components/chat/{ComposerSpecQuestionsPanel,ThreadSpecPanel}.tsx`, `ChatComposer.tsx`, `ThreadDetailsPanel.tsx`, `threadDetailsItems.ts`, `Sidebar.tsx`, `sidebar/SidebarThreadRow.tsx`, `sidebarStatusSort.ts`, `chat/RightPanelSurfaceContent.tsx`.
   - Mobile: `apps/mobile/src/state/specQuestions.ts`, `apps/mobile/src/features/threads/{SpecQuestionsCard.tsx,ThreadDetailScreen.tsx,threadListV2.ts,useThreadListV2.ts,thread-list-v2-items.tsx}`.
-- **Known limits:** the comment name is per repo, so everyone using a repo's config signs as that name. A spec created after its thread loads appears after a reload.
+- **Known limits:** T3 writes comments with a blank `by`, shown as "You", because it has no identity of its own; whatever syncs the file fills it in (pb-cos does, from the Company OS token's `/me`). Repos with nothing to sign them keep them unsigned. A spec created after its thread loads appears after a reload.
 - **Check after an update:** a thread named after a folder spec and one named after a single-file spec each show the card and the Input status; answering changes only that `answer` line.
 
 ### 9. Threads stay unread until you leave them

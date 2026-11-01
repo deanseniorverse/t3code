@@ -204,7 +204,7 @@ function SpecQuestionsCard(props: {
                     key={`${comment.by}:${comment.at}:${comment.text}`}
                     className="text-secondary-label"
                   >
-                    <span className="font-medium text-foreground/85">{comment.by}</span>
+                    <span className="font-medium text-foreground/85">{comment.by || "You"}</span>
                     {comment.at ? ` · ${comment.at}` : ""}: {comment.text}
                   </li>
                 ))}
@@ -217,9 +217,7 @@ function SpecQuestionsCard(props: {
               disabled={locked}
               placeholder={
                 selected === null
-                  ? spec.commentAuthor !== null
-                    ? "Type your own answer, or a comment"
-                    : "Type your own answer"
+                  ? "Type your own answer, or a comment"
                   : `Optional tweak to ${selected}, e.g. "but per center"`
               }
               onChange={(event) => setNote(event.currentTarget.value)}
@@ -267,21 +265,19 @@ function SpecQuestionsCard(props: {
               >
                 Answer
               </Button>
-              {spec.commentAuthor !== null ? (
-                <Button
-                  size="compact"
-                  variant="outline"
-                  disabled={locked || trimmedNote === ""}
-                  onClick={() =>
-                    void run(
-                      () => actions.comment(question, spec.commentAuthor!, trimmedNote),
-                      `Commented on Q${question.number}`,
-                    )
-                  }
-                >
-                  Comment
-                </Button>
-              ) : null}
+              <Button
+                size="compact"
+                variant="outline"
+                disabled={locked || trimmedNote === ""}
+                onClick={() =>
+                  void run(
+                    () => actions.comment(question, trimmedNote),
+                    `Commented on Q${question.number}`,
+                  )
+                }
+              >
+                Comment
+              </Button>
               <Button
                 size="compact"
                 variant="ghost-muted"
