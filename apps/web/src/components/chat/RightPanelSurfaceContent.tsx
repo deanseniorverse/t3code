@@ -10,6 +10,8 @@ import type {
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
+import { useQuietThreadShell } from "../../state/entities";
+import { ThreadRepoPills, threadRepoRoots } from "../ThreadRepoPills";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
 import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
@@ -188,6 +190,13 @@ export function RightPanelSurfaceContent(props: {
       if (!attachment && (files.projectName === null || !files.workspaceRoot)) return null;
       return (
         <Suspense fallback={null}>
+          {attachment ? null : (
+            <FilesRepoPills
+              threadRef={threadRef}
+              surface={surface}
+              workspaceRoot={files.workspaceRoot ?? ""}
+            />
+          )}
           <FilePreviewPanel
             key={`${props.environmentId}:${
               attachment ? `attachment:${attachment.id}` : files.workspaceRoot
@@ -219,4 +228,33 @@ export function RightPanelSurfaceContent(props: {
       );
     }
   }
+}
+
+// Each repository the thread reaches opens as its own folder; the thread's checkout is the root.
+function FilesRepoPills(props: {
+  readonly threadRef: Parameters<typeof useQuietThreadShell>[0];
+  readonly surface: Extract<RightPanelSurface, { kind: "files" | "file" }>;
+  readonly workspaceRoot: string;
+}) {
+  const thread = useQuietThreadShell(props.threadRef);
+  const roots = threadRepoRoots(props.workspaceRoot, thread?.folders);
+  if (roots.length < 2 || props.threadRef === null) return null;
+  const threadRef = props.threadRef;
+  const openPath =
+    props.surface.kind === "file" ? (props.surface.folderTrail ?? props.surface.relativePath) : "";
+  const selected =
+    roots.slice(1).find((root) => openPath === root.path || openPath.startsWith(`${root.path}/`))
+      ?.path ?? roots[0]!.path;
+  return (
+    <div className="shrink-0 px-3 pt-2">
+      <ThreadRepoPills
+        roots={roots}
+        selectedPath={selected}
+        onSelect={(root) => {
+          const path = root.path === roots[0]!.path ? "" : root.path;
+          useRightPanelStore.getState().navigateFolder(threadRef, props.surface.id, path, path);
+        }}
+      />
+    </div>
+  );
 }

@@ -161,7 +161,6 @@ import {
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
@@ -194,9 +193,7 @@ import {
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
   sidebarThreadKeyAtY,
-  sortInboxThreadsByReturn,
   sortPinnedThreadsForSidebar,
-  sortThreadsForSidebar,
   sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   useThreadJumpHintsVisible,
@@ -204,6 +201,7 @@ import {
   type SidebarSection,
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";
+import { sortThreadsByStatus } from "./sidebarStatusSort";
 import {
   createSidebarCollisionDetection,
   createSidebarSortingStrategy,
@@ -242,6 +240,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarThreadFilters } from "./sidebar/SidebarThreadFilters";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -341,8 +340,6 @@ interface SidebarThreadPartitionInput {
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
-  /** Boring mode: folders list active threads by the user's latest message. */
-  readonly sortActiveBySend: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -377,7 +374,7 @@ function resolveDraggedOrders(input: {
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
+      ? sortThreadsByStatus(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
           inboxReturns.returnedAt,
         ).map(threadShellKey)
@@ -464,7 +461,6 @@ function useSidebarThreads(input: {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
-    sortActiveBySend: folderGroups !== null,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -599,7 +595,6 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
-    sortActiveBySend,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
@@ -658,11 +653,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   }
   // A loaded config gates dragging only; the sort must not depend on it, so web and mobile agree.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-  const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
-    : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
+  const sortedActive = sortThreadsByStatus(active, inboxObservation.returnedAt);
   return {
     pinnedThreads:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -692,6 +683,15 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     visibleThreads: visible,
     snoozeNow: preciseNow,
   };
+}
+
+function intersectSidebarScopeKeys(
+  left: ReadonlySet<string> | null,
+  right: ReadonlySet<string> | null,
+): ReadonlySet<string> | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return new Set([...left].filter((key) => right.has(key)));
 }
 
 /** The sidebar's scope per environment: the scoped projects there, or every project. */
@@ -985,6 +985,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const persistedEnvironmentScopeId = useUiStateStore((store) => store.sidebarEnvironmentScopeId);
+  const setPersistedEnvironmentScopeId = useUiStateStore(
+    (store) => store.setSidebarEnvironmentScopeId,
+  );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -1069,6 +1073,42 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  const environmentScopeOptions = [...environmentLabelById].map(([environmentId, label]) => ({
+    environmentId,
+    label,
+    machine: environmentMachineById.get(environmentId) ?? ("server" as const),
+  }));
+  const chosenEnvironmentScopeId =
+    persistedEnvironmentScopeId !== null &&
+    environmentLabelById.has(persistedEnvironmentScopeId as EnvironmentId)
+      ? (persistedEnvironmentScopeId as EnvironmentId)
+      : null;
+  // Like the iPhone, a project the new environment lacks drops out of the scope.
+  const setEnvironmentScopeId = (environmentId: EnvironmentId | null) => {
+    clearSelection();
+    setPersistedEnvironmentScopeId(environmentId);
+    if (environmentId === null) return;
+    const kept = persistedProjectScopeKeys.filter((key) =>
+      projectGroups
+        .find((project) => project.projectKey === key)
+        ?.memberProjectRefs.some((projectRef) => projectRef.environmentId === environmentId),
+    );
+    if (kept.length !== persistedProjectScopeKeys.length) setPersistedProjectScopeKeys(kept);
+  };
+  const chosenScopeKeys = intersectSidebarScopeKeys(
+    chosenScopeProjectKeys,
+    chosenEnvironmentScopeId === null
+      ? null
+      : new Set(
+          projectGroups.flatMap((project) =>
+            project.memberProjectRefs.flatMap((projectRef) =>
+              projectRef.environmentId === chosenEnvironmentScopeId
+                ? [`${projectRef.environmentId}:${projectRef.projectId}`]
+                : [],
+            ),
+          ),
+        ),
+  );
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -1093,7 +1133,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reveal: routeReveal,
     routeKey: routeRowThreadKey,
     isSearching: isSearchingThreads,
-    scopedProjectKeys: chosenScopeProjectKeys,
+    scopedProjectKeys: chosenScopeKeys,
     delegatedUnderParent,
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
@@ -1114,38 +1154,53 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (!revealWidensScope) return;
     clearSelection();
     setPersistedProjectScopeKeys([]);
-  }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
+    setPersistedEnvironmentScopeId(null);
+  }, [
+    clearSelection,
+    revealWidensScope,
+    setPersistedProjectScopeKeys,
+    setPersistedEnvironmentScopeId,
+  ]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
-  const scratchMachineLabelFor = (
-    thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
-  ) => {
-    if (!showProjectEnvironments) return null;
-    const project = projectByKey.get(`${thread.environmentId}:${thread.projectId}`);
-    if (
-      !project ||
-      !isScratchProject(project, serverConfigs.get(thread.environmentId)?.scratchWorkspaceRoot)
-    ) {
-      return null;
-    }
-    return environmentLabelById.get(thread.environmentId) ?? null;
-  };
+  const machineLabelFor = (thread: Pick<SidebarThreadSummary, "environmentId">) =>
+    environmentLabelById.get(thread.environmentId) ?? null;
   const selectedProjectScopeItem =
     projectScopeKeys.length > 1
       ? null
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
+  const environmentProjectScopeItems =
+    chosenEnvironmentScopeId === null
+      ? projectScopeItems
+      : projectScopeItems.filter(
+          (item) =>
+            item.value === "all" ||
+            projectGroupByScopeKey
+              .get(item.value)
+              ?.memberProjectRefs.some(
+                (projectRef) => projectRef.environmentId === chosenEnvironmentScopeId,
+              ),
+        );
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+    items: environmentProjectScopeItems,
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
-  const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const scopedEnvironmentId = revealWidensScope ? null : chosenEnvironmentScopeId;
+  const scopedProjectRefs = scopedProjectGroups
+    .flatMap((project) => project.memberProjectRefs)
+    .filter(
+      (projectRef) =>
+        scopedEnvironmentId === null || projectRef.environmentId === scopedEnvironmentId,
+    );
+  const scopedProjectKeys = revealWidensScope ? null : chosenScopeKeys;
   const threadSearch = useThreadSearch(
-    searchEnvironmentIds,
+    scopedEnvironmentId === null
+      ? searchEnvironmentIds
+      : searchEnvironmentIds.filter((environmentId) => environmentId === scopedEnvironmentId),
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1282,9 +1337,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     delegatedUnderParent,
     routeRowThreadKey,
     folderGroups: boringSidebarEnabled
-      ? scopedProjectGroups.length === 0
-        ? projectGroups
-        : scopedProjectGroups
+      ? (scopedProjectGroups.length === 0 ? projectGroups : scopedProjectGroups).filter(
+          (project) =>
+            scopedEnvironmentId === null ||
+            project.memberProjectRefs.some(
+              (projectRef) => projectRef.environmentId === scopedEnvironmentId,
+            ),
+        )
       : null,
     keepEmptyFolders: scopedProjectGroups.length > 0,
   });
@@ -3084,6 +3143,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {projectGroups.length > 0 ? (
+              <SidebarThreadFilters
+                environments={environmentScopeOptions}
+                selectedEnvironmentId={scopedEnvironmentId}
+                onEnvironmentChange={setEnvironmentScopeId}
+                projects={environmentProjectScopeItems.flatMap((item) =>
+                  item.value === "all" ? [] : [{ value: item.value, label: item.label }],
+                )}
+                selectedProjectKey={projectScopeKeys.length === 1 ? projectScopeKeys[0]! : null}
+                selectedProjectLabel={
+                  projectScopeKeys.length > 1
+                    ? `${projectScopeKeys.length} projects`
+                    : (projectGroupByScopeKey.get(projectScopeKeys[0] ?? "")?.displayName ?? null)
+                }
+                onProjectChange={(key) => setProjectScopeKeys(key === null ? [] : [key])}
+              />
+            ) : null}
           </SidebarGroup>
         }
       >
@@ -3269,7 +3345,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             environmentMachine={
                               environmentMachineById.get(thread.environmentId) ?? "server"
                             }
-                            scratchMachineLabel={scratchMachineLabelFor(thread)}
+                            machineLabel={machineLabelFor(thread)}
                             project={
                               projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
                               null

@@ -19,7 +19,6 @@ import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/sh
 import {
   createInboxReturnTracker,
   isThreadWorking,
-  sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
@@ -27,6 +26,7 @@ import {
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
+  sortThreadsByStatusGroup,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
@@ -242,16 +242,20 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-export function sortThreadsForListV2<
-  T extends {
-    readonly id: string;
-    readonly createdAt: string;
-    readonly unsettledAt?: string | null | undefined;
-    readonly activeOrderKey?: string | null | undefined;
-    readonly environmentId?: string | undefined;
-  },
->(threads: readonly T[]): T[] {
-  return sortActiveThreadsByOrderKey(threads);
+function threadListV2StatusGroup(thread: EnvironmentThreadShell) {
+  const status = resolveThreadListV2Status(thread);
+  if (status === "input" || status === "approval" || status === "request") return 0;
+  if (status === "failed" || status === "limited") return 1;
+  if (status === "ready" && threadHasUnseenCompletion(thread)) return 2;
+  return 3;
+}
+
+/** The main list as a to-do list: needs input, failed, unread Done, then read threads. */
+export function sortThreadsByListV2Status(
+  threads: readonly EnvironmentThreadShell[],
+  observedReturnAt?: (thread: EnvironmentThreadShell) => number | undefined,
+): EnvironmentThreadShell[] {
+  return sortThreadsByStatusGroup(threads, threadListV2StatusGroup, observedReturnAt);
 }
 
 export function getThreadListV2OrderedSection(input: {
@@ -741,9 +745,7 @@ export function buildThreadListV2Items(input: {
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const orderedActive = sortThreadsByListV2Status(active, input.inboxReturnAt);
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>

@@ -8,6 +8,8 @@ interface OpenDiffFilePrimaryActionInput {
   readonly threadRef: ScopedThreadRef | null;
   readonly filePath: string;
   readonly activeCwd: string | undefined;
+  /** The thread's own root; the Files panel resolves relative paths against it. */
+  readonly threadCwd?: string | undefined;
   readonly repositoryRoot?: string | undefined;
   readonly openInEditor: (targetPath: string) => void;
 }
@@ -81,6 +83,7 @@ export function openDiffFilePrimaryAction({
   threadRef,
   filePath,
   activeCwd,
+  threadCwd = activeCwd,
   repositoryRoot,
   openInEditor,
 }: OpenDiffFilePrimaryActionInput): void {
@@ -92,7 +95,15 @@ export function openDiffFilePrimaryAction({
   if (!workspaceFilePath) return;
 
   if (threadRef) {
-    useRightPanelStore.getState().openFile(threadRef, workspaceFilePath);
+    // An attached folder's files open by absolute path, or they would resolve against the thread's root.
+    useRightPanelStore
+      .getState()
+      .openFile(
+        threadRef,
+        activeCwd && activeCwd !== threadCwd
+          ? resolvePathLinkTarget(workspaceFilePath, activeCwd)
+          : workspaceFilePath,
+      );
     return;
   }
 
