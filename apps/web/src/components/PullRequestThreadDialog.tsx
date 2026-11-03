@@ -1,6 +1,7 @@
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
+  isGitManagerError,
   type ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -150,9 +151,11 @@ export function PullRequestThreadDialog({
       } else {
         const error = squashAtomCommandFailure(result);
         setPrepareErrorMessage(
-          error instanceof Error
-            ? error.message
-            : `Failed to prepare ${terminology.singular} thread.`,
+          isGitManagerError(error)
+            ? error.detail
+            : error instanceof Error
+              ? error.message
+              : `Failed to prepare ${terminology.singular} thread.`,
         );
       }
       return;

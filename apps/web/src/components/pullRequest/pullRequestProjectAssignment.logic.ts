@@ -63,12 +63,15 @@ export function resolvePickableEnvironments(
     readonly label: string;
     readonly machine?: EnvironmentMachineKind;
   }>,
+  /** Set when the panel's own project isn't on the pull request's repository. */
+  foreignRepositoryKey?: string,
 ): ReadonlyArray<PickableEnvironment> {
   const own = projects.find(
     (project) =>
       project.environmentId === current.environmentId && project.id === current.projectId,
   );
-  const key = own === undefined ? undefined : repositoryKey(own);
+  const key =
+    foreignRepositoryKey?.toLowerCase() ?? (own === undefined ? undefined : repositoryKey(own));
   const ownEnvironment = environments.find(
     (environment) => environment.environmentId === current.environmentId,
   );
@@ -92,6 +95,7 @@ export function resolvePickableEnvironments(
         ];
   });
   if (others.length === 0) return [];
+  if (foreignRepositoryKey !== undefined) return others;
   return [
     {
       environmentId: current.environmentId,

@@ -6,6 +6,7 @@ import {
 import * as Schema from "effect/Schema";
 import {
   GitCommandError,
+  isGitManagerError,
   PullRequestDetail,
   PullRequestOperationError,
   type PullRequestAction,
@@ -1230,12 +1231,33 @@ export function readableFailure(failure: unknown, hint: string): string {
 
 const isGitCommandError = Schema.is(GitCommandError);
 
+export function foreignRepositoryKey(pullRequestUrl: string): string | undefined {
+  const repositoryUrl =
+    sourceControlClients.parseChangeRequestUrl(pullRequestUrl)?.link.repositoryUrl;
+  return repositoryUrl === undefined
+    ? undefined
+    : sourceControlClients.canonicalRepositoryKey(
+        sourceControlClients.repositoryKeyFromRemote(repositoryUrl),
+      );
+}
+
+/** Why this project can't check the pull request out, or null when it can. */
+export function checkoutUnavailableReason(
+  detail: Pick<PullRequestDetail, "checkoutAvailable" | "repository"> | null | undefined,
+): string | null {
+  return detail?.checkoutAvailable === false
+    ? `This project has no remote on \`${detail.repository}\`. Open it from a \`${detail.repository}\` project.`
+    : null;
+}
+
 export function checkoutFailureDescription(failure: unknown): string {
   const description = isGitCommandError(failure)
     ? failure.reason === undefined
       ? failure.detail
       : `${failure.detail} (${failure.reason})`
-    : failure;
+    : isGitManagerError(failure)
+      ? failure.detail
+      : failure;
   return readableFailure(
     description,
     "Check that the branch still exists and is not checked out elsewhere, then try again.",

@@ -103,6 +103,14 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **Where:** `apps/web/src/uiStateStore.ts` (+ test), `components/Sidebar.tsx`, `sidebar/SidebarThreadHeader.tsx`, `sidebar/SidebarThreadRow.tsx`, `threadActionMenu.logic.ts`.
 - **Check after an update:** star a thread, turn on the filter, reload; only that thread shows and the filter is still on.
 
+### 11. Pull requests only check out in their own repository
+
+- **Goal:** opening another repository's PR from a thread can't put its code, remote and worktree in the wrong repo.
+- **What:** `preparePullRequestThread` fails before any write unless the PR's base repository matches a raw `remote.<name>.url` of the workspace. An SSH alias host with no dot, such as `github-ford`, compares by path. The PR detail reports `checkoutAvailable`, and web disables Check out and the PR row's Resolve and Fix with the reason. The machine picker then lists only machines holding the PR's repository. Web and mobile show a `GitManagerError`'s detail without its prefix. Linking and reading a foreign PR stay available.
+- **Where:** `apps/server/src/git/pullRequestCheckoutGuard.ts`, `apps/server/src/git/GitManager.ts`, `apps/server/src/pullRequest/PullRequestService.ts`, `packages/contracts/src/{git,pullRequest}.ts`, `apps/web/src/components/pullRequest/{PullRequestDetailPanel,PullRequestDetailActions}.tsx, usePullRequestActions.ts`, `pullRequestDetail.logic.ts`, `pullRequestProjectAssignment.logic.ts`, `apps/web/src/components/chat/ThreadDetailsPrRow.tsx`, `apps/web/src/components/PullRequestThreadDialog.tsx`, `apps/mobile/src/state/threadOutboxDelivery.ts`.
+- **Rebase risk:** medium. Upstream may change `preparePullRequestThread` or the panel's handoff; the guard must stay ahead of the `input.mode` split. Upstream's local-remote test fixtures will fail the guard until they use a visible URL.
+- **Check after a rebase:** run the `refuses another repository's PR` cases in `apps/server/src/git/GitManager.test.ts`.
+
 ## Surfaces
 
 | Feature                                           | Web/desktop | Mobile                          |
@@ -115,3 +123,4 @@ Placeholder: we define this process the first time we take an upstream update. I
 | 8. Spec questions                                 | yes         | yes, summary in the card header |
 | 9. Unread until you leave                         | yes         | yes                             |
 | 10. Favorite threads                              | yes         | no                              |
+| 11. PR checkout guard                             | yes         | server, refusal text            |
