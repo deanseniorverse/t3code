@@ -35,6 +35,7 @@ import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsL
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
+import { EnvironmentRenameDialog, EnvironmentRenameMenuItem } from "./EnvironmentRenameDialog";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
@@ -234,6 +235,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   >(null);
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
+  const [renamePrimaryOpen, setRenamePrimaryOpen] = useState(false);
   const [routeTarget, setRouteTarget] = useState<EnvironmentPresentation | null>(null);
   const [savedBackendError, setSavedBackendError] = useState<string | null>(null);
   const handleAddBackendDialogOpenChange = (open: boolean) => {
@@ -1044,26 +1046,39 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
             }
             headerAction={
               primaryEnvironmentId !== null ? (
-                <Menu>
-                  <MenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost-muted"
-                        size="icon-xs"
-                        aria-label="More actions for this machine"
+                <>
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost-muted"
+                          size="icon-xs"
+                          aria-label="More actions for this machine"
+                        />
+                      }
+                    >
+                      <EllipsisIcon className="size-3.5" />
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <EnvironmentRenameMenuItem
+                        environmentId={primaryEnvironmentId}
+                        serverConfig={primaryServerConfig}
+                        onRename={() => setRenamePrimaryOpen(true)}
                       />
-                    }
-                  >
-                    <EllipsisIcon className="size-3.5" />
-                  </MenuTrigger>
-                  <MenuPopup align="end">
-                    <EnvironmentIconMenu
-                      environmentId={primaryEnvironmentId}
-                      serverConfig={primaryServerConfig}
-                    />
-                  </MenuPopup>
-                </Menu>
+                      <EnvironmentIconMenu
+                        environmentId={primaryEnvironmentId}
+                        serverConfig={primaryServerConfig}
+                      />
+                    </MenuPopup>
+                  </Menu>
+                  <EnvironmentRenameDialog
+                    open={renamePrimaryOpen}
+                    onOpenChange={setRenamePrimaryOpen}
+                    environmentId={primaryEnvironmentId}
+                    serverConfig={primaryServerConfig}
+                  />
+                </>
               ) : null
             }
           >

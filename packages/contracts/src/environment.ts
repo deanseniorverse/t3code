@@ -132,6 +132,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server answers projects.listIgnoredFiles. */
   ignoredFileListing: Schema.optionalKey(Schema.Boolean),
   environmentIcon: Schema.optionalKey(Schema.Boolean),
+  environmentLabel: Schema.optionalKey(Schema.Boolean),
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
   /** The desktop app switches update tracks when a server update request names one. */
   desktopAppChannelSwitch: Schema.optionalKey(Schema.Boolean),
@@ -158,7 +159,10 @@ export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabi
 
 export const ExecutionEnvironmentDescriptor = Schema.Struct({
   environmentId: EnvironmentId,
+  /** The nickname set in settings when there is one, else `machineLabel`. */
   label: TrimmedNonEmptyString,
+  /** The name the machine reports for itself; absent on servers without nicknames. */
+  machineLabel: Schema.optionalKey(TrimmedNonEmptyString),
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
