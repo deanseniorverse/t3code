@@ -7,6 +7,7 @@ import {
   hasRelayRoute,
   presentConnectionDiagnosis,
   type EnvironmentPresentation,
+  connectionEntryLabel,
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import Constants from "expo-constants";
@@ -37,7 +38,7 @@ export function useConnectionDiagnosis(
   const relayOnly =
     connectionRoutes(presentation.entry).length === 1 && hasRelayRoute(presentation.entry);
   const diagnosis = presentConnectionDiagnosis({
-    hostLabel: presentation.entry.target.label,
+    hostLabel: connectionEntryLabel(presentation.entry),
     state,
     via: relayOnly ? "relay" : "direct",
     clientVersion: Constants.expoConfig?.version,

@@ -12,6 +12,7 @@ import {
   removeCatalogValue,
   removeConnectionFromCatalog,
   setConnectionEnabledInCatalog,
+  setEnvironmentNicknameInCatalog,
   setRoutesInCatalog,
   replaceCatalogValue,
   Persistence,
@@ -91,6 +92,8 @@ function persistenceError(
     | "set-connection-routes"
     | "remove-connection"
     | "set-connection-enabled"
+    | "list-environment-nicknames"
+    | "set-environment-nickname"
     | "load-shell"
     | "save-shell"
     | "load-thread"
@@ -634,6 +637,10 @@ export const layer = Layer.effectContext(
         Effect.map((document) => document.disabledEnvironmentIds),
         Effect.mapError((cause) => persistenceError("list-disabled-targets", cause)),
       ),
+      listNicknames: catalog.read.pipe(
+        Effect.map((document) => document.environmentNicknames),
+        Effect.mapError((cause) => persistenceError("list-environment-nicknames", cause)),
+      ),
     });
     const registrationStore = Persistence.ConnectionRegistrationStore.of({
       register: Effect.fn("Persistence.ConnectionRegistrationStore.register")(
@@ -660,6 +667,15 @@ export const layer = Layer.effectContext(
           return catalog
             .update((document) => setConnectionEnabledInCatalog(document, environmentId, enabled))
             .pipe(Effect.mapError((cause) => persistenceError("set-connection-enabled", cause)));
+        },
+      ),
+      setNickname: Effect.fn("Persistence.ConnectionRegistrationStore.setNickname")(
+        function (environmentId, nickname) {
+          return catalog
+            .update((document) =>
+              setEnvironmentNicknameInCatalog(document, environmentId, nickname),
+            )
+            .pipe(Effect.mapError((cause) => persistenceError("set-environment-nickname", cause)));
         },
       ),
     });

@@ -1,3 +1,4 @@
+import { connectionEntryLabel } from "@t3tools/client-runtime/connection";
 import * as Dialog from "../../components/ui/Dialog";
 import {
   AuthTerminalReadScope,
@@ -867,7 +868,9 @@ function ThreadTerminal(props: {
           {!isEnvironmentReady ? (
             <EnvironmentConnectionNotice
               environmentLabel={
-                environment.presentation?.entry.target.label ??
+                (environment.presentation
+                  ? connectionEntryLabel(environment.presentation.entry)
+                  : null) ??
                 selectedEnvironmentConnection?.environmentLabel ??
                 "Environment"
               }

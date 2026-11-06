@@ -212,6 +212,22 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it.effect("ignores a retired environmentLabel without resetting settings", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fs.writeFileString(
+        config.settingsPath,
+        `{ "environmentLabel": "Air", "enableAgentBrowserAccess": false }`,
+      );
+
+      const settings = yield* service.getSettings;
+      assert.isFalse(settings.enableAgentBrowserAccess);
+      assert.notProperty(settings, "environmentLabel");
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("keeps an override key a newer server saved when a project setting is edited", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
