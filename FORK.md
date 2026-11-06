@@ -113,19 +113,18 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **Rebase risk:** medium. Upstream may change `preparePullRequestThread` or the panel's handoff; the guard must stay ahead of the `input.mode` split. Upstream's local-remote test fixtures will fail the guard until they use a visible URL.
 - **Check after a rebase:** run the `refuses another repository's PR` cases in `apps/server/src/git/GitManager.test.ts`.
 
-### 12. Machine nicknames
+### 12. Machine nicknames on this device
 
-- **Goal:** call a machine "Dean's M3P" in T3 Code without renaming the Mac, and see that name on every device.
+- **Goal:** call a machine "Air" in T3 Code on one device, the way the iPhone's Label field does, without renaming the Mac or changing what other devices show.
 - **What:**
-  - The nickname is the `environmentLabel` server setting on the machine itself; blank or `null` goes back to the machine's own name.
-  - The descriptor reports it as `label` and the machine's name as `machineLabel`, with an `environmentLabel` capability.
-  - Rename… sits in the ⋯ menu of this machine's row and each saved environment in Settings → Connections. It is locked, with the reason shown, when the machine is not connected, the session lacks settings access, or the machine runs an older build.
-  - Every device follows the server's name live and saves it, so it survives offline and fixes names saved at pairing.
-  - `t3_environment_read` reports it and `t3_environment_preferences_update` sets it.
-  - Renaming from mobile is not supported; mobile shows the new name.
-- **Where:** `packages/contracts/src/{settings,environment,server}.ts` (`EnvironmentLabel`, `machineLabel`, `resolveEnvironmentLabel`; + test), `apps/server/src/environment/ServerEnvironment.ts` (+ test), `apps/server/src/server.ts` (environment layer takes settings), `apps/server/src/mcp/toolkits/environment/{tools,handlers}.ts`, `apps/server/src/provider/agentContextBudget.json`, `packages/client-runtime/src/rpc/session.ts` (`configChanges`), `connection/routes.ts` (`entryWithLabel`), `connection/registry.ts` (`setLabel` and its watcher; + test), `apps/web/src/components/settings/{EnvironmentRenameDialog,ConnectionsSettings,SavedEnvironmentRows}.tsx`, `HostFreezeToastCoordinator.ts`, `chat/useSystemComposerBanners.tsx`.
-- **Rebase risk:** medium. Upstream may change the descriptor, the registry's lease and storage code, or the session's config stream; keep `setLabel` updating in place without restarting the connection.
-- **Check after an update:** rename a remote machine from another device; its sidebar name changes on both without reconnecting, and clearing it shows the machine's name.
+  - The nickname is stored with the saved environment in this device's connection catalog (`environmentNicknames`), never on a server. Platform environments (this machine, desktop-local backends) take one too, though they have no saved routes.
+  - It wins over every other name: pairing, T3 Connect records, platform and descriptor labels. The registry re-applies it whenever a registration replaces the entry, so reconnects, relay refreshes and re-pairing keep it. Only another rename on the device changes it; blank goes back to the saved route's label.
+  - Web/desktop: Rename… in the ⋯ menu of this machine (Settings → Sharing & access) and of each saved environment (Settings → Environments). It is never locked and works offline.
+  - Mobile: the environment's Label field sets the same nickname; changing only the label no longer re-pairs.
+  - Removing an environment forgets its nickname. Servers ignore a leftover `environmentLabel` setting from the earlier server-side design.
+- **Where:** `packages/client-runtime/src/connection/catalog.ts` (`nickname`, `connectionEntryLabel`, `entryWithNickname`), `connection/registry.ts` (`setNickname`, `withSavedNickname`; + test), `platform/storageDocument.ts` (+ test), `platform/persistence.ts`, `state/connections.ts`, `state/presentation.ts`, and readers that show an entry's name in client-runtime, web and mobile (`connectionEntryLabel`). Storage: `apps/web/src/connection/storage.ts`, `apps/mobile/src/connection/storage.ts`, `apps/desktop/src/app/DesktopConnectionCatalogStore.ts`. UI: `apps/web/src/components/settings/{EnvironmentRenameDialog,ConnectionsSettings,SavedEnvironmentRows}.tsx`, `apps/mobile/src/features/connection/useConnectionController.ts`.
+- **Rebase risk:** medium. New upstream code that reads `entry.target.label` for display shows the route label instead of the nickname; switch it to `connectionEntryLabel`. Upstream changes to how the registry installs entries must keep `withSavedNickname`.
+- **Check after an update:** rename a remote machine from Settings → Environments, reconnect it and reload; the sidebar and settings keep the new name, and another device still shows its own. Clear it; the saved name returns.
 
 ## Surfaces
 
@@ -140,4 +139,4 @@ Placeholder: we define this process the first time we take an upstream update. I
 | 9. Unread until you leave                         | yes         | yes                             |
 | 10. Pin filter                                    | yes         | pins sync; no filter            |
 | 11. PR checkout guard                             | yes         | server, refusal text            |
-| 12. Machine nicknames                             | yes         | shows the name, no rename       |
+| 12. Machine nicknames on this device              | yes         | yes, through the Label field    |

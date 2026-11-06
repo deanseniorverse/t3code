@@ -36,6 +36,7 @@ import {
   SshConnectionRegistration,
   type ConnectionCredential,
   type ConnectionProfile,
+  connectionEntryLabel,
 } from "./catalog.ts";
 import * as Connectivity from "./connectivity.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
@@ -163,8 +164,8 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
       target: ConnectionTarget,
     ) => Effect.Effect<ConnectionBlockedError | undefined>;
     readonly initialDisabled?: ReadonlyArray<EnvironmentId>;
+    readonly initialNicknames?: ReadonlyArray<readonly [EnvironmentId, string]>;
     readonly directEndpoints?: ServerConfig["directEndpoints"];
-    readonly configChanges?: Stream.Stream<ServerConfig>;
   },
 ) {
   const storedTargets = yield* Ref.make<ReadonlyArray<ConnectionTarget>>(initialTargets);
@@ -202,9 +203,17 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   const storedDisabled = yield* Ref.make<ReadonlySet<EnvironmentId>>(
     new Set(options?.initialDisabled ?? []),
   );
+  const storedNicknames = yield* Ref.make<ReadonlyMap<EnvironmentId, string>>(
+    new Map(options?.initialNicknames ?? []),
+  );
   const targetStore = Persistence.ConnectionTargetStore.of({
     list: Ref.get(storedTargets),
     listDisabled: Ref.get(storedDisabled).pipe(Effect.map((ids) => [...ids])),
+    listNicknames: Ref.get(storedNicknames).pipe(
+      Effect.map((current) =>
+        [...current].map(([environmentId, nickname]) => ({ environmentId, nickname })),
+      ),
+    ),
   });
   const registrationStore = Persistence.ConnectionRegistrationStore.of({
     register: (registration, routes) =>
@@ -270,6 +279,13 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
         } else {
           next.add(environmentId);
         }
+        return next;
+      }),
+    setNickname: (environmentId, nickname) =>
+      Ref.update(storedNicknames, (current) => {
+        const next = new Map(current);
+        if (nickname === null) next.delete(environmentId);
+        else next.set(environmentId, nickname);
         return next;
       }),
   });
@@ -412,7 +428,6 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
               : Effect.succeed({ directEndpoints: options.directEndpoints } as ServerConfig),
           subscribeServerConfig: () =>
             Stream.die(new Error("Config is not used by registry tests.")),
-          ...(options?.configChanges === undefined ? {} : { configChanges: options.configChanges }),
           ready: Effect.void,
           probe: Effect.void,
           inboundFrames: Effect.succeed(0),
@@ -472,6 +487,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
     storedCredentials,
     storedRemoteTokens,
     storedDisabled,
+    storedNicknames,
     disconnectedSshTargets,
     networkStatus,
     connectedRoutes,
@@ -2143,44 +2159,93 @@ describe("EnvironmentRegistry routes", () => {
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
+});
 
-  it.effect("follows the server's nickname and saves it for later launches", () =>
+describe("EnvironmentRegistry nicknames", () => {
+  const environmentId = RELAY_TARGET.environmentId;
+  const labelOf = Effect.fn("TestEnvironmentRegistry.labelOf")(function* (id: EnvironmentId) {
+    const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+    const entry = (yield* SubscriptionRef.get(registry.entries)).get(id);
+    return entry === undefined ? undefined : connectionEntryLabel(entry);
+  });
+
+  it.effect("keeps this device's nickname over relay, pairing and platform labels", () =>
     Effect.gen(function* () {
-      const environmentId = BEARER_TARGET.environmentId;
-      const config = (environmentLabel: string | null) =>
-        ({
-          environment: {
-            label: environmentLabel ?? "Dean's Macbook Pro",
-            machineLabel: "Dean's Macbook Pro",
-          },
-          settings: { environmentLabel },
-        }) as unknown as ServerConfig;
-      const harness = yield* makeHarness(
-        [BEARER_TARGET],
-        [BEARER_PROFILE],
-        [[BEARER_TARGET.connectionId, BEARER_CREDENTIAL]],
-        { configChanges: Stream.make(config(null), config("Dean's M3P"), config("Dean's M3P")) },
-      );
+      const harness = yield* makeHarness([RELAY_TARGET]);
       yield* Effect.gen(function* () {
         const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
         yield* registry.start;
-        yield* SubscriptionRef.changes(registry.entries).pipe(
-          Stream.filter((entries) => entries.get(environmentId)?.target.label === "Dean's M3P"),
-          Stream.take(1),
-          Stream.runDrain,
+        yield* awaitConnectionState(
+          registry,
+          environmentId,
+          (state) => state.phase === "connected",
         );
-        const entry = (yield* SubscriptionRef.get(registry.entries)).get(environmentId);
-        expect(Option.getOrNull(entry!.profile)?.label).toBe("Dean's M3P");
-        expect(
-          (yield* Ref.get(harness.storedTargets)).find(
-            (target) => target.environmentId === environmentId,
-          )?.label,
-        ).toBe("Dean's M3P");
-        expect(
-          (yield* Ref.get(harness.storedProfiles)).get(BEARER_TARGET.connectionId)?.label,
-        ).toBe("Dean's M3P");
-        // Renaming in place keeps the live connection.
+
+        yield* registry.setNickname(environmentId, "  Air ");
+        expect(yield* labelOf(environmentId)).toBe("Air");
+        expect(yield* Ref.get(harness.storedNicknames)).toEqual(new Map([[environmentId, "Air"]]));
+        // The saved route keeps its own label, for when the nickname is cleared.
+        expect(routesOf(yield* Ref.get(harness.storedTargets), environmentId)).toEqual([
+          RELAY_TARGET,
+        ]);
         expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
+
+        yield* registry.register(
+          new RelayConnectionRegistration({
+            target: new RelayConnectionTarget({ environmentId, label: "Dean's Air" }),
+          }),
+        );
+        expect(yield* labelOf(environmentId)).toBe("Air");
+
+        const lanTarget = new BearerConnectionTarget({
+          environmentId,
+          label: "Dean's Air",
+          connectionId: "bearer:lan",
+        });
+        yield* registry.register(
+          new BearerConnectionRegistration({
+            target: lanTarget,
+            profile: new BearerConnectionProfile({
+              connectionId: lanTarget.connectionId,
+              environmentId,
+              label: lanTarget.label,
+              httpBaseUrl: "http://192.168.1.10:3773/",
+              wsBaseUrl: "ws://192.168.1.10:3773/",
+            }),
+            credential: BEARER_CREDENTIAL,
+          }),
+        );
+        expect(yield* labelOf(environmentId)).toBe("Air");
+
+        yield* registry.reconcilePlatform([new PrimaryConnectionRegistration({ target: TARGET })]);
+        yield* registry.setNickname(TARGET.environmentId, "M5P");
+        yield* registry.reconcilePlatform([
+          new PrimaryConnectionRegistration({
+            target: new PrimaryConnectionTarget({ ...TARGET, label: "Descriptor name" }),
+          }),
+        ]);
+        expect(yield* labelOf(TARGET.environmentId)).toBe("M5P");
+        expect((yield* Ref.get(harness.storedNicknames)).get(TARGET.environmentId)).toBe("M5P");
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect("loads a saved nickname, and a blank one goes back to the route's label", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness([RELAY_TARGET], [], [], {
+        initialNicknames: [[environmentId, "Air"]],
+      });
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        expect(yield* labelOf(environmentId)).toBe("Air");
+
+        yield* registry.setNickname(environmentId, "   ");
+        expect(yield* labelOf(environmentId)).toBe(RELAY_TARGET.label);
+        expect(yield* Ref.get(harness.storedNicknames)).toEqual(new Map());
+
+        yield* registry.setNickname(environmentId, "Air");
+        yield* registry.remove(environmentId);
+        expect(yield* Ref.get(harness.storedNicknames)).toEqual(new Map());
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );

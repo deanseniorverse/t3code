@@ -7,7 +7,11 @@ import * as Scope from "effect/Scope";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 
-import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
+import {
+  connectionEntryLabel,
+  type ConnectionCatalogEntry,
+  type ConnectionRoute,
+} from "./catalog.ts";
 import type {
   ConnectionAttemptError,
   ConnectionAttemptStage,
@@ -130,7 +134,7 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
       blocked ??
       new ConnectionTransientError({
         reason: "endpoint-unavailable",
-        detail: `${entry.target.label} did not answer on any saved route.`,
+        detail: `${connectionEntryLabel(entry)} did not answer on any saved route.`,
       })
   );
 });

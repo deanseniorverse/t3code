@@ -1,4 +1,4 @@
-import { EnvironmentId, resolveEnvironmentLabel } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -21,7 +21,9 @@ import {
   type ConnectionRoute,
   type PlatformConnectionRegistration,
   SshConnectionProfile,
+  connectionEntryLabel,
   connectionRegistrationCatalogEntry,
+  entryWithNickname,
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import * as ConnectionProfileStore from "./profileStore.ts";
@@ -47,7 +49,6 @@ import {
   connectionRouteId,
   connectionRoutes,
   credentialConnectionId,
-  entryWithLabel,
   entryWithRoutes,
   findRouteToSameAddress,
   hasSavedBearerRoute,
@@ -172,6 +173,17 @@ export class EnvironmentRegistry extends Context.Service<
       environmentId: EnvironmentId,
       error: ConnectionBlockedError | null,
     ) => Effect.Effect<void, Persistence.ConnectionPersistenceError>;
+    /**
+     * Names the environment on this device only, platform environments included. Pairing, relay
+     * and descriptor labels never replace it; blank or null goes back to the route's label.
+     */
+    readonly setNickname: (
+      environmentId: EnvironmentId,
+      nickname: string | null,
+    ) => Effect.Effect<
+      void,
+      EnvironmentNotRegisteredError | Persistence.ConnectionPersistenceError
+    >;
     readonly state: (
       environmentId: EnvironmentId,
     ) => Effect.Effect<SupervisorConnectionState, EnvironmentNotRegisteredError>;
@@ -223,6 +235,20 @@ export const make = Effect.gen(function* () {
   const ssh = yield* ClientCapabilities.SshEnvironmentGateway;
   const persistedTargets = yield* storage.list;
   const disabledEnvironmentIds = new Set(yield* storage.listDisabled);
+  const nicknames = yield* Ref.make<ReadonlyMap<EnvironmentId, string>>(
+    new Map(
+      (yield* storage.listNicknames).map(({ environmentId, nickname }) => [
+        environmentId,
+        nickname,
+      ]),
+    ),
+  );
+  const withSavedNickname = (entry: ConnectionCatalogEntry) =>
+    Ref.get(nicknames).pipe(
+      Effect.map((current) =>
+        entryWithNickname(entry, current.get(entry.target.environmentId) ?? null),
+      ),
+    );
   const loadRoute = Effect.fn("EnvironmentRegistry.loadRoute")(function* (
     target: ConnectionTarget,
   ) {
@@ -254,13 +280,15 @@ export const make = Effect.gen(function* () {
         const first = routes[0]!;
         return [
           environmentId,
-          entryWithRoutes(
-            {
-              target: first.target,
-              profile: first.profile,
-              enabled: !disabledEnvironmentIds.has(environmentId),
-            },
-            routes,
+          yield* withSavedNickname(
+            entryWithRoutes(
+              {
+                target: first.target,
+                profile: first.profile,
+                enabled: !disabledEnvironmentIds.has(environmentId),
+              },
+              routes,
+            ),
           ),
         ] as const;
       }),
@@ -389,18 +417,6 @@ export const make = Effect.gen(function* () {
             ),
             Effect.forkIn(scope),
           );
-          // The saved name came from pairing; follow the server's nickname or machine name since.
-          yield* SubscriptionRef.changes(supervisor.session).pipe(
-            Stream.switchMap((session) =>
-              Option.isSome(session) && session.value.configChanges !== undefined
-                ? session.value.configChanges
-                : Stream.empty,
-            ),
-            Stream.map(resolveEnvironmentLabel),
-            Stream.changes,
-            Stream.runForEach((label) => setLabel(environmentId, label)),
-            Effect.forkIn(scope),
-          );
           return supervisor;
         }),
       ),
@@ -499,9 +515,11 @@ export const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("EnvironmentRegistry.start"));
 
   const installEntryLocked = Effect.fn("EnvironmentRegistry.installEntryLocked")(function* (
-    entry: ConnectionCatalogEntry,
+    registered: ConnectionCatalogEntry,
     options?: { readonly retainEquivalentRuntime?: boolean },
   ) {
+    // Registrations carry pairing, relay or platform labels; the device's nickname outranks them.
+    const entry = yield* withSavedNickname(registered);
     const target = entry.target;
     const previous = (yield* SubscriptionRef.get(entries)).get(target.environmentId);
     const existingScope = (yield* SubscriptionRef.get(serviceScopes)).get(target.environmentId);
@@ -566,7 +584,7 @@ export const make = Effect.gen(function* () {
     ) {
       return yield* new ConnectionBlockedError({
         reason: "configuration",
-        detail: `That address claims to be ${saved.target.label}, which is already saved. Add it as a route from that environment's settings instead.`,
+        detail: `That address claims to be ${connectionEntryLabel(saved)}, which is already saved. Add it as a route from that environment's settings instead.`,
       });
     }
   });
@@ -849,6 +867,14 @@ export const make = Effect.gen(function* () {
 
     yield* pullRequestRoutingPermissions.forget(environmentId);
     yield* registrations.remove(environmentId);
+    if ((yield* Ref.get(nicknames)).has(environmentId)) {
+      yield* registrations.setNickname(environmentId, null);
+      yield* Ref.update(nicknames, (current) => {
+        const next = new Map(current);
+        next.delete(environmentId);
+        return next;
+      });
+    }
     yield* Ref.update(persistedEnvironmentIds, (current) => {
       const next = new Set(current);
       next.delete(environmentId);
@@ -1127,43 +1153,6 @@ export const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  const setLabel = Effect.fn("EnvironmentRegistry.setLabel")(function* (
-    environmentId: EnvironmentId,
-    label: string,
-  ) {
-    yield* withLeaseLock(
-      environmentId,
-      Effect.gen(function* () {
-        const entry = (yield* SubscriptionRef.get(entries)).get(environmentId);
-        if (entry === undefined) return;
-        const next = entryWithLabel(entry, label);
-        if (next === null) return;
-        // The platform owns its own environments' names and storage.
-        if (!(yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
-          for (const route of connectionRoutes(next)) {
-            const profile = Option.getOrNull(route.profile);
-            if (profile !== null) yield* profiles.put(profile);
-          }
-          yield* registrations.setRoutes(environmentId, persistedRoutes(next));
-        }
-        // In place, like `setEnabled`: a rename must not restart the connection.
-        const lease = (yield* SubscriptionRef.get(serviceScopes)).get(environmentId);
-        if (lease !== undefined) {
-          yield* SubscriptionRef.update(serviceScopes, (current) =>
-            new Map(current).set(environmentId, { ...lease, entry: next }),
-          );
-        }
-        yield* SubscriptionRef.update(entries, (current) =>
-          new Map(current).set(environmentId, next),
-        );
-      }),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("Could not save the environment's new name.", { environmentId, error }),
-      ),
-    );
-  });
-
   const setCompatibility = Effect.fn("EnvironmentRegistry.setCompatibility")(function* (
     environmentId: EnvironmentId,
     error: ConnectionBlockedError | null,
@@ -1207,6 +1196,37 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const setNickname = Effect.fn("EnvironmentRegistry.setNickname")(function* (
+    environmentId: EnvironmentId,
+    nickname: string | null,
+  ) {
+    yield* withLeaseLock(
+      environmentId,
+      Effect.gen(function* () {
+        const entry = yield* getEntry(environmentId);
+        const next = entryWithNickname(entry, nickname);
+        if (next.nickname === entry.nickname) return;
+        yield* registrations.setNickname(environmentId, next.nickname ?? null);
+        yield* Ref.update(nicknames, (current) => {
+          const updated = new Map(current);
+          if (next.nickname === undefined) updated.delete(environmentId);
+          else updated.set(environmentId, next.nickname);
+          return updated;
+        });
+        // In place, like `setEnabled`: a rename must not restart the connection.
+        const lease = (yield* SubscriptionRef.get(serviceScopes)).get(environmentId);
+        if (lease !== undefined) {
+          yield* SubscriptionRef.update(serviceScopes, (current) =>
+            new Map(current).set(environmentId, { ...lease, entry: next }),
+          );
+        }
+        yield* SubscriptionRef.update(entries, (current) =>
+          new Map(current).set(environmentId, next),
+        );
+      }),
+    );
+  });
+
   return EnvironmentRegistry.of({
     entries,
     networkStatus,
@@ -1221,6 +1241,7 @@ export const make = Effect.gen(function* () {
     retryNow,
     setEnabled,
     setCompatibility,
+    setNickname,
     state,
     stateChanges,
     run,

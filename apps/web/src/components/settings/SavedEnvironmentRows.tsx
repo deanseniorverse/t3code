@@ -413,11 +413,7 @@ export function SavedBackendListRow({
           <EllipsisIcon className="size-3.5" />
         </MenuTrigger>
         <MenuPopup align="end">
-          <EnvironmentRenameMenuItem
-            environmentId={environmentId}
-            serverConfig={environment.serverConfig}
-            onRename={() => setRenameOpen(true)}
-          />
+          <EnvironmentRenameMenuItem onRename={() => setRenameOpen(true)} />
           <EnvironmentIconMenu
             environmentId={environmentId}
             serverConfig={environment.serverConfig}
@@ -442,7 +438,7 @@ export function SavedBackendListRow({
         open={renameOpen}
         onOpenChange={setRenameOpen}
         environmentId={environmentId}
-        serverConfig={environment.serverConfig}
+        entry={environment.entry}
       />
     </EnvironmentRow>
   );

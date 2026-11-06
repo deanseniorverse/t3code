@@ -659,18 +659,6 @@ export const ServerConfig = Schema.Struct({
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
-/** The nickname set on the server, else the name the machine reports for itself. */
-export function resolveEnvironmentLabel(config: {
-  readonly environment: Pick<ExecutionEnvironmentDescriptor, "label" | "machineLabel">;
-  readonly settings?: Pick<ServerSettings, "environmentLabel">;
-}): string {
-  // Settings stream live, the descriptor only per connection: `machineLabel` keeps a cleared
-  // nickname from lingering until the next reconnect.
-  return (
-    config.settings?.environmentLabel ?? config.environment.machineLabel ?? config.environment.label
-  );
-}
-
 export function resolveEnvironmentMachineKind(
   config: {
     readonly environment: Pick<ExecutionEnvironmentDescriptor, "platform">;

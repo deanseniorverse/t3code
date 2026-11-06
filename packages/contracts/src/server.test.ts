@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import {
   OtlpEndpointCheckInput,
-  resolveEnvironmentLabel,
   resolveEnvironmentMachineKind,
   ServerObservability,
   ServerProvider,
@@ -118,49 +117,6 @@ describe("resolveEnvironmentMachineKind", () => {
     expect(
       resolveEnvironmentMachineKind({ environment: parsed, settings: decodeSettings({}) }),
     ).toBe("server");
-  });
-});
-
-describe("resolveEnvironmentLabel", () => {
-  const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
-  const decodeSettings = Schema.decodeUnknownSync(ServerSettings);
-  const descriptor = (fields: Record<string, unknown>) =>
-    decodeDescriptor({
-      environmentId: "env-1",
-      platform: { os: "darwin", arch: "arm64" },
-      serverVersion: "1.0.0",
-      capabilities: {},
-      ...fields,
-    });
-
-  it("prefers the nickname from settings", () => {
-    expect(
-      resolveEnvironmentLabel({
-        environment: descriptor({
-          label: "Dean's Macbook Pro",
-          machineLabel: "Dean's Macbook Pro",
-        }),
-        settings: decodeSettings({ environmentLabel: "  Dean's M3P " }),
-      }),
-    ).toBe("Dean's M3P");
-  });
-
-  it("falls back to the machine's name once the nickname is cleared, not the stale descriptor", () => {
-    expect(
-      resolveEnvironmentLabel({
-        environment: descriptor({ label: "Old nickname", machineLabel: "Dean's Macbook Pro" }),
-        settings: decodeSettings({}),
-      }),
-    ).toBe("Dean's Macbook Pro");
-  });
-
-  it("uses the label from servers that predate nicknames", () => {
-    expect(resolveEnvironmentLabel({ environment: descriptor({ label: "Box" }) })).toBe("Box");
-  });
-
-  it("rejects a blank or overlong nickname", () => {
-    expect(() => decodeSettings({ environmentLabel: "   " })).toThrow();
-    expect(() => decodeSettings({ environmentLabel: "x".repeat(65) })).toThrow();
   });
 });
 

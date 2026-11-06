@@ -3,6 +3,7 @@ import {
   connectionCatalogDisplayUrl,
   hasRelayRoute,
   type EnvironmentPresentation as BaseEnvironmentPresentation,
+  connectionEntryLabel,
 } from "@t3tools/client-runtime/connection";
 import type { ComposerEnvironmentCandidate } from "@t3tools/client-runtime/composerThreadItems";
 import { type EnvironmentId, resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -24,7 +25,7 @@ export function projectEnvironmentPresentation(
   return {
     ...presentation,
     environmentId,
-    label: presentation.entry.target.label,
+    label: connectionEntryLabel(presentation.entry),
     displayUrl: connectionCatalogDisplayUrl(presentation.entry),
     relayManaged: hasRelayRoute(presentation.entry),
   };

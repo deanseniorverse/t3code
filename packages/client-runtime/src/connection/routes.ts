@@ -9,18 +9,10 @@ import * as Option from "effect/Option";
 
 import {
   BearerConnectionProfile,
-  SshConnectionProfile,
   type ConnectionCatalogEntry,
-  type ConnectionProfile,
   type ConnectionRoute,
 } from "./catalog.ts";
-import {
-  BearerConnectionTarget,
-  PrimaryConnectionTarget,
-  RelayConnectionTarget,
-  SshConnectionTarget,
-  type ConnectionTarget,
-} from "./model.ts";
+import { BearerConnectionTarget, type ConnectionTarget } from "./model.ts";
 
 export type ConnectionRouteKind =
   | "relay"
@@ -64,49 +56,6 @@ export function entryWithRoutes(
     profile: first.profile,
     ...(rest.length === 0 ? {} : { alternateRoutes: rest }),
   };
-}
-
-function targetWithLabel(target: ConnectionTarget, label: string): ConnectionTarget {
-  switch (target._tag) {
-    case "PrimaryConnectionTarget":
-      return new PrimaryConnectionTarget({ ...target, label });
-    case "BearerConnectionTarget":
-      return new BearerConnectionTarget({ ...target, label });
-    case "RelayConnectionTarget":
-      return new RelayConnectionTarget({ ...target, label });
-    case "SshConnectionTarget":
-      return new SshConnectionTarget({ ...target, label });
-  }
-}
-
-function profileWithLabel(profile: ConnectionProfile, label: string): ConnectionProfile {
-  return profile._tag === "BearerConnectionProfile"
-    ? new BearerConnectionProfile({ ...profile, label })
-    : new SshConnectionProfile({ ...profile, label });
-}
-
-/** Renames every route of an entry, or returns null when all of them already carry `label`. */
-export function entryWithLabel(
-  entry: ConnectionCatalogEntry,
-  label: string,
-): ConnectionCatalogEntry | null {
-  const routes = connectionRoutes(entry);
-  if (
-    routes.every(
-      (route) =>
-        route.target.label === label &&
-        Option.match(route.profile, { onNone: () => true, onSome: (p) => p.label === label }),
-    )
-  ) {
-    return null;
-  }
-  return entryWithRoutes(
-    entry,
-    routes.map((route) => ({
-      target: targetWithLabel(route.target, label),
-      profile: Option.map(route.profile, (profile) => profileWithLabel(profile, label)),
-    })),
-  );
 }
 
 export function routeEntry(

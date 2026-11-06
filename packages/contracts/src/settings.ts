@@ -49,12 +49,6 @@ import {
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 
-export const ENVIRONMENT_LABEL_MAX_LENGTH = 64;
-/** A machine nickname: trimmed, non-blank, short enough for a sidebar row. */
-export const EnvironmentLabel = TrimmedNonEmptyString.check(
-  Schema.isMaxLength(ENVIRONMENT_LABEL_MAX_LENGTH),
-);
-
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
 const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
@@ -1341,10 +1335,6 @@ export const ServerSettings = Schema.Struct({
   environmentIcon: ForwardCompatibleNullable(EnvironmentMachineKind).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  /** Nickname shown for this machine on every client; null uses the machine's own name. */
-  environmentLabel: Schema.NullOr(EnvironmentLabel).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
   /** Null inherits t3.json, then local; omit it on the wire for older clients requiring a literal. */
   defaultThreadEnvMode: OmittedWhenNull(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
@@ -1685,7 +1675,6 @@ export const ServerSettingsPatch = Schema.Struct({
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
-  environmentLabel: Schema.optionalKey(Schema.NullOr(EnvironmentLabel)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),

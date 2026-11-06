@@ -53,8 +53,25 @@ export interface ConnectionCatalogEntry {
   readonly profile: Option.Option<ConnectionProfile>;
   readonly alternateRoutes?: ReadonlyArray<ConnectionRoute>;
   readonly enabled: boolean;
+  /** This device's name for the environment; wins over every route's label. */
+  readonly nickname?: string;
   readonly unsupportedReason?: string;
   readonly serverUpdateRequired?: boolean;
+}
+
+/** The name this device shows for an environment. */
+export function connectionEntryLabel(entry: Pick<ConnectionCatalogEntry, "target" | "nickname">) {
+  return entry.nickname ?? entry.target.label;
+}
+
+/** Blank or null clears the nickname. */
+export function entryWithNickname(
+  entry: ConnectionCatalogEntry,
+  nickname: string | null,
+): ConnectionCatalogEntry {
+  const trimmed = nickname?.trim() ?? "";
+  const { nickname: _previous, ...rest } = entry;
+  return trimmed === "" ? rest : { ...rest, nickname: trimmed };
 }
 
 export class BearerConnectionCredential extends Schema.TaggedClass<BearerConnectionCredential>()(

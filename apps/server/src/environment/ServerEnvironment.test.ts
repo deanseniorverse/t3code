@@ -18,16 +18,11 @@ import {
   RELAY_URL_SECRET,
 } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
 
-const layerServerEnvironment = (
-  baseDir: string,
-  settings: Parameters<typeof ServerSettings.layerTest>[0] = {},
-) =>
+const layerServerEnvironment = (baseDir: string) =>
   ServerEnvironment.layer.pipe(
     Layer.provide(ServerSecretStore.layer),
-    Layer.provide(ServerSettings.layerTest(settings)),
     Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
 
@@ -103,7 +98,6 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           Effect.provide(
             ServerEnvironment.layer.pipe(
               Layer.provide(layerEmptySecretStore),
-              Layer.provide(ServerSettings.layerTest()),
               Layer.provide(ServerConfig.layer({ ...config, mode })),
             ),
           ),
@@ -241,10 +235,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
         prefix: "t3-server-environment-publish-test-",
       });
       const layerTest = Layer.mergeAll(
-        ServerEnvironment.layer.pipe(
-          Layer.provide(ServerSecretStore.layer),
-          Layer.provide(ServerSettings.layerTest()),
-        ),
+        ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer)),
         ServerSecretStore.layer,
       ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)));
 
@@ -273,28 +264,6 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
         const disabled = yield* serverEnvironment.getDescriptor;
         expect(disabled.capabilities.agentActivityPublishing).toBe(false);
       }).pipe(Effect.provide(layerTest));
-    }),
-  );
-
-  it.effect("reports the nickname from settings as its label and keeps the machine's name", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-server-environment-test-",
-      });
-      const read = ServerEnvironment.ServerEnvironment.pipe(
-        Effect.flatMap((environment) => environment.getDescriptor),
-      );
-
-      const plain = yield* read.pipe(Effect.provide(layerServerEnvironment(baseDir)));
-      const renamed = yield* read.pipe(
-        Effect.provide(layerServerEnvironment(baseDir, { environmentLabel: "Dean's M3P" })),
-      );
-
-      expect(plain.label).toBe(plain.machineLabel);
-      expect(plain.capabilities.environmentLabel).toBe(true);
-      expect(renamed.label).toBe("Dean's M3P");
-      expect(renamed.machineLabel).toBe(plain.machineLabel);
     }),
   );
 });

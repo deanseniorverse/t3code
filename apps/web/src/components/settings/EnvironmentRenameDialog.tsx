@@ -1,16 +1,14 @@
-// Fork-only: renames an environment from Settings → Connections.
+// Fork-only: renames an environment on this device from Settings.
 import {
-  AuthSettingsWriteScope,
-  ENVIRONMENT_LABEL_MAX_LENGTH,
-  resolveEnvironmentLabel,
-  type EnvironmentId,
-  type ServerConfig,
-} from "@t3tools/contracts";
+  connectionEntryLabel,
+  type ConnectionCatalogEntry,
+} from "@t3tools/client-runtime/connection";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { PencilIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
-import { useEnvironmentScope } from "../../state/session";
+import { environmentCatalog } from "../../connection/catalog";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -25,57 +23,28 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { MenuItem } from "../ui/menu";
 
-type RenameServerConfig = Pick<ServerConfig, "environment" | "settings">;
-
-function resolveEnvironmentRenameLock(input: {
-  readonly serverConfig: RenameServerConfig | null;
-  readonly settingsAccess: boolean;
-}): string | null {
-  if (input.serverConfig === null) return "Connect to this environment to rename it.";
-  if (input.serverConfig.environment.capabilities.environmentLabel !== true) {
-    return "Update T3 Code on this environment to rename it.";
-  }
-  if (!input.settingsAccess) return "Your session on this environment cannot change its settings.";
-  return null;
-}
+const NICKNAME_MAX_LENGTH = 64;
 
 /** Opens the rename dialog; the dialog lives outside the menu so it survives the menu closing. */
-export function EnvironmentRenameMenuItem({
-  environmentId,
-  serverConfig,
-  onRename,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly serverConfig: RenameServerConfig | null;
-  readonly onRename: () => void;
-}) {
-  const settingsAccess = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
-  const lock = resolveEnvironmentRenameLock({ serverConfig, settingsAccess });
+export function EnvironmentRenameMenuItem({ onRename }: { readonly onRename: () => void }) {
   return (
-    <MenuItem disabled={lock !== null} onClick={onRename}>
+    <MenuItem onClick={onRename}>
       <PencilIcon />
-      <span className="flex min-w-0 flex-col whitespace-normal">
-        Rename…
-        {lock !== null ? <span className="text-muted-foreground text-xs">{lock}</span> : null}
-      </span>
+      Rename…
     </MenuItem>
   );
 }
 
-/**
- * Sets the nickname in the environment's own settings, so every client that connects to it shows
- * the same name. Clearing the field goes back to the machine's own name.
- */
 export function EnvironmentRenameDialog({
   open,
   onOpenChange,
   environmentId,
-  serverConfig,
+  entry,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: EnvironmentId;
-  readonly serverConfig: RenameServerConfig | null;
+  readonly entry: ConnectionCatalogEntry;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -83,7 +52,7 @@ export function EnvironmentRenameDialog({
         {/* The popup unmounts when closed, so each opening starts from the current name. */}
         <EnvironmentRenameForm
           environmentId={environmentId}
-          serverConfig={serverConfig}
+          entry={entry}
           onClose={() => onOpenChange(false)}
         />
       </DialogPopup>
@@ -93,36 +62,32 @@ export function EnvironmentRenameDialog({
 
 function EnvironmentRenameForm({
   environmentId,
-  serverConfig,
+  entry,
   onClose,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly serverConfig: RenameServerConfig | null;
+  readonly entry: ConnectionCatalogEntry;
   readonly onClose: () => void;
 }) {
-  const updateSettings = useUpdateEnvironmentSettings(environmentId);
-  const current = serverConfig?.settings.environmentLabel ?? "";
-  const machineLabel =
-    serverConfig?.environment.machineLabel ?? serverConfig?.environment.label ?? "";
+  const setNickname = useAtomCommand(environmentCatalog.setNickname, "Rename environment");
+  const current = entry.nickname ?? "";
+  const fallback = entry.target.label;
   const [draft, setDraft] = useState(current);
   const trimmed = draft.trim();
   const unchanged = trimmed === current;
 
   const save = () => {
-    if (serverConfig === null || unchanged) return;
-    updateSettings({ environmentLabel: trimmed.length === 0 ? null : trimmed });
+    if (unchanged) return;
+    void setNickname({ environmentId, nickname: trimmed.length === 0 ? null : trimmed });
     onClose();
   };
 
   return (
     <>
       <DialogHeader>
-        <DialogTitle>
-          Rename {serverConfig ? resolveEnvironmentLabel(serverConfig) : "environment"}
-        </DialogTitle>
+        <DialogTitle>Rename {connectionEntryLabel(entry)}</DialogTitle>
         <DialogDescription>
-          Every device connected to this machine shows the new name. Leave it blank to use the
-          machine's own name{machineLabel ? `, ${machineLabel}` : ""}.
+          The new name shows on this device only. Leave it blank to use {fallback}.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
@@ -136,9 +101,9 @@ function EnvironmentRenameForm({
           <Label htmlFor="environment-nickname">Name</Label>
           <Input
             id="environment-nickname"
-            placeholder={machineLabel}
+            placeholder={fallback}
             value={draft}
-            maxLength={ENVIRONMENT_LABEL_MAX_LENGTH}
+            maxLength={NICKNAME_MAX_LENGTH}
             onChange={(event) => setDraft(event.target.value)}
             autoFocus
           />
@@ -148,7 +113,7 @@ function EnvironmentRenameForm({
         <Button variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button onClick={save} disabled={serverConfig === null || unchanged}>
+        <Button onClick={save} disabled={unchanged}>
           Save
         </Button>
       </DialogFooter>

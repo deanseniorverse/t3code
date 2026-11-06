@@ -1061,23 +1061,23 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
                       <EllipsisIcon className="size-3.5" />
                     </MenuTrigger>
                     <MenuPopup align="end">
-                      <EnvironmentRenameMenuItem
-                        environmentId={primaryEnvironmentId}
-                        serverConfig={primaryServerConfig}
-                        onRename={() => setRenamePrimaryOpen(true)}
-                      />
+                      {primaryEnvironment !== null ? (
+                        <EnvironmentRenameMenuItem onRename={() => setRenamePrimaryOpen(true)} />
+                      ) : null}
                       <EnvironmentIconMenu
                         environmentId={primaryEnvironmentId}
                         serverConfig={primaryServerConfig}
                       />
                     </MenuPopup>
                   </Menu>
-                  <EnvironmentRenameDialog
-                    open={renamePrimaryOpen}
-                    onOpenChange={setRenamePrimaryOpen}
-                    environmentId={primaryEnvironmentId}
-                    serverConfig={primaryServerConfig}
-                  />
+                  {primaryEnvironment !== null ? (
+                    <EnvironmentRenameDialog
+                      open={renamePrimaryOpen}
+                      onOpenChange={setRenamePrimaryOpen}
+                      environmentId={primaryEnvironmentId}
+                      entry={primaryEnvironment.entry}
+                    />
+                  ) : null}
                 </>
               ) : null
             }
