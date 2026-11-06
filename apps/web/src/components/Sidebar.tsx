@@ -342,7 +342,7 @@ interface SidebarThreadPartitionInput {
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
   readonly openSpecThreads: ReadonlySet<string>;
-  /** Fork-only: the sidebar's pin filter; pinned threads then sort by status, not pin order. */
+  /** Fork-only: the sidebar's pin filter; pins sort by status and working pins join Working. */
   readonly pinnedOnly: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
@@ -600,7 +600,7 @@ function useSidebarThreads(input: {
   };
 }
 
-function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
+export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const {
     threads,
     scopedProjectKeys,
@@ -612,7 +612,9 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const preciseNow = new Date().toISOString();
   const scoped = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
   const visible = input.pinnedOnly ? scoped.filter((thread) => thread.pinnedAt != null) : scoped;
-  const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
+  const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null, {
+    pinsCanWork: input.pinnedOnly,
+  });
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
@@ -621,6 +623,9 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     (manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread))
       ? working
       : active;
+  // Fork-only: under the pin filter a working pin leaves the pinned list for the Working shelf.
+  const shelvesAsWorking = (thread: EnvironmentThreadShell) =>
+    input.pinnedOnly && inbox(thread) === working;
   const snoozed: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const draggable = new Set<string>();
@@ -653,7 +658,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
         settled: configLoaded && thread.settledOverride === "settled",
-        pinned: thread.pinnedAt != null,
+        pinned: thread.pinnedAt != null && !shelvesAsWorking(thread),
       });
       (section === "snoozed"
         ? snoozed
