@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, resolveEnvironmentLabel } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -47,6 +47,7 @@ import {
   connectionRouteId,
   connectionRoutes,
   credentialConnectionId,
+  entryWithLabel,
   entryWithRoutes,
   findRouteToSameAddress,
   hasSavedBearerRoute,
@@ -386,6 +387,18 @@ export const make = Effect.gen(function* () {
                 ? setCompatibility(environmentId, state.lastFailure)
                 : Effect.void,
             ),
+            Effect.forkIn(scope),
+          );
+          // The saved name came from pairing; follow the server's nickname or machine name since.
+          yield* SubscriptionRef.changes(supervisor.session).pipe(
+            Stream.switchMap((session) =>
+              Option.isSome(session) && session.value.configChanges !== undefined
+                ? session.value.configChanges
+                : Stream.empty,
+            ),
+            Stream.map(resolveEnvironmentLabel),
+            Stream.changes,
+            Stream.runForEach((label) => setLabel(environmentId, label)),
             Effect.forkIn(scope),
           );
           return supervisor;
@@ -1113,6 +1126,43 @@ export const make = Effect.gen(function* () {
     Stream.runForEach((status) => SubscriptionRef.set(networkStatus, status)),
     Effect.forkScoped,
   );
+
+  const setLabel = Effect.fn("EnvironmentRegistry.setLabel")(function* (
+    environmentId: EnvironmentId,
+    label: string,
+  ) {
+    yield* withLeaseLock(
+      environmentId,
+      Effect.gen(function* () {
+        const entry = (yield* SubscriptionRef.get(entries)).get(environmentId);
+        if (entry === undefined) return;
+        const next = entryWithLabel(entry, label);
+        if (next === null) return;
+        // The platform owns its own environments' names and storage.
+        if (!(yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
+          for (const route of connectionRoutes(next)) {
+            const profile = Option.getOrNull(route.profile);
+            if (profile !== null) yield* profiles.put(profile);
+          }
+          yield* registrations.setRoutes(environmentId, persistedRoutes(next));
+        }
+        // In place, like `setEnabled`: a rename must not restart the connection.
+        const lease = (yield* SubscriptionRef.get(serviceScopes)).get(environmentId);
+        if (lease !== undefined) {
+          yield* SubscriptionRef.update(serviceScopes, (current) =>
+            new Map(current).set(environmentId, { ...lease, entry: next }),
+          );
+        }
+        yield* SubscriptionRef.update(entries, (current) =>
+          new Map(current).set(environmentId, next),
+        );
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not save the environment's new name.", { environmentId, error }),
+      ),
+    );
+  });
 
   const setCompatibility = Effect.fn("EnvironmentRegistry.setCompatibility")(function* (
     environmentId: EnvironmentId,

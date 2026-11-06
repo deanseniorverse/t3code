@@ -22,6 +22,7 @@ import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import { databaseMigrationHead } from "../persistence/databaseMigrationHead.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
 import { detectServerEnvironmentMachineKind } from "./ServerEnvironmentMachine.ts";
 
@@ -184,6 +185,7 @@ const makeIdentity = Effect.gen(function* () {
 /** @public */
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const identity = yield* ServerEnvironmentIdentity;
@@ -208,6 +210,7 @@ export const make = Effect.gen(function* () {
   const descriptor: ExecutionEnvironmentDescriptor = {
     environmentId,
     label,
+    machineLabel: label,
     platform: {
       os: platformOs(hostPlatform),
       arch: platformArch(hostArchitecture),
@@ -261,6 +264,7 @@ export const make = Effect.gen(function* () {
       threadStop: true,
       ...(hostPlatform === "win32" ? {} : { localServerStop: true }),
       environmentIcon: true,
+      environmentLabel: true,
       projectCloneTracking: true,
       ignoredFileListing: true,
       triage: true,
@@ -279,10 +283,17 @@ export const make = Effect.gen(function* () {
 
   return ServerEnvironment.of({
     getEnvironmentId: Effect.succeed(environmentId),
-    // Publishing opt-in and relay links change at runtime; read the capability per request.
-    getDescriptor: readAgentActivityPublishingActive(secrets).pipe(
-      Effect.map((agentActivityPublishing) => ({
+    // Publishing opt-in, relay links and the nickname change at runtime; read them per request.
+    getDescriptor: Effect.all([
+      readAgentActivityPublishingActive(secrets),
+      settings.getSettings.pipe(
+        Effect.map((current) => current.environmentLabel),
+        Effect.orElseSucceed(() => null),
+      ),
+    ]).pipe(
+      Effect.map(([agentActivityPublishing, nickname]) => ({
         ...descriptor,
+        label: nickname ?? label,
         capabilities: { ...descriptor.capabilities, agentActivityPublishing },
       })),
     ),

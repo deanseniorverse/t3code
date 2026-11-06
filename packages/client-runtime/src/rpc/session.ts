@@ -51,6 +51,11 @@ export interface RpcSession {
   readonly subscribeServerConfig: (
     input: ServerConfigSubscriptionInput,
   ) => ServerConfigSubscription;
+  /**
+   * The projected config now and after each update, read from the session's own subscription.
+   * Ends with the session; never fails. Optional so test sessions can omit it.
+   */
+  readonly configChanges?: Stream.Stream<ServerConfig>;
   readonly ready: Effect.Effect<void, ConnectionAttemptError>;
   readonly probe: Effect.Effect<void, ConnectionAttemptError>;
   /** Frames received so far: proof the socket is alive that needs no reply. */
@@ -404,6 +409,23 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           ),
         ),
       );
+    const configChanges = Stream.unwrap(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(serverConfigUpdates);
+        const snapshot = yield* Ref.get(serverConfigState);
+        const revision = Option.match(snapshot, { onNone: () => 0, onSome: (s) => s.revision });
+        return Stream.concat(
+          Option.match(snapshot, {
+            onNone: () => Stream.empty,
+            onSome: (state) => Stream.make(state.projection.config),
+          }),
+          Stream.fromSubscription(subscription).pipe(
+            Stream.filter((buffered) => buffered.revision > revision),
+            Stream.map((buffered) => buffered.replay.projection.config),
+          ),
+        );
+      }),
+    );
     const probe = initialConfig.pipe(
       Effect.flatMap(() =>
         protocolClient[WS_METHODS.serverProbe]({}).pipe(Effect.mapError(mapRpcError)),
@@ -416,6 +438,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       client: protocolClient,
       initialConfig,
       subscribeServerConfig,
+      configChanges,
       ready: Deferred.await(connected).pipe(
         Effect.andThen(initialConfig),
         Effect.asVoid,

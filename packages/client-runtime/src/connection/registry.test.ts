@@ -164,6 +164,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
     ) => Effect.Effect<ConnectionBlockedError | undefined>;
     readonly initialDisabled?: ReadonlyArray<EnvironmentId>;
     readonly directEndpoints?: ServerConfig["directEndpoints"];
+    readonly configChanges?: Stream.Stream<ServerConfig>;
   },
 ) {
   const storedTargets = yield* Ref.make<ReadonlyArray<ConnectionTarget>>(initialTargets);
@@ -411,6 +412,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
               : Effect.succeed({ directEndpoints: options.directEndpoints } as ServerConfig),
           subscribeServerConfig: () =>
             Stream.die(new Error("Config is not used by registry tests.")),
+          ...(options?.configChanges === undefined ? {} : { configChanges: options.configChanges }),
           ready: Effect.void,
           probe: Effect.void,
           inboundFrames: Effect.succeed(0),
@@ -2138,6 +2140,47 @@ describe("EnvironmentRegistry routes", () => {
         const entry = (yield* SubscriptionRef.get(registry.entries)).get(LAN_TARGET.environmentId);
         expect(entry?.target).toEqual(LAN_TARGET);
         expect(entry?.alternateRoutes ?? []).toEqual([]);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect("follows the server's nickname and saves it for later launches", () =>
+    Effect.gen(function* () {
+      const environmentId = BEARER_TARGET.environmentId;
+      const config = (environmentLabel: string | null) =>
+        ({
+          environment: {
+            label: environmentLabel ?? "Dean's Macbook Pro",
+            machineLabel: "Dean's Macbook Pro",
+          },
+          settings: { environmentLabel },
+        }) as unknown as ServerConfig;
+      const harness = yield* makeHarness(
+        [BEARER_TARGET],
+        [BEARER_PROFILE],
+        [[BEARER_TARGET.connectionId, BEARER_CREDENTIAL]],
+        { configChanges: Stream.make(config(null), config("Dean's M3P"), config("Dean's M3P")) },
+      );
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.start;
+        yield* SubscriptionRef.changes(registry.entries).pipe(
+          Stream.filter((entries) => entries.get(environmentId)?.target.label === "Dean's M3P"),
+          Stream.take(1),
+          Stream.runDrain,
+        );
+        const entry = (yield* SubscriptionRef.get(registry.entries)).get(environmentId);
+        expect(Option.getOrNull(entry!.profile)?.label).toBe("Dean's M3P");
+        expect(
+          (yield* Ref.get(harness.storedTargets)).find(
+            (target) => target.environmentId === environmentId,
+          )?.label,
+        ).toBe("Dean's M3P");
+        expect(
+          (yield* Ref.get(harness.storedProfiles)).get(BEARER_TARGET.connectionId)?.label,
+        ).toBe("Dean's M3P");
+        // Renaming in place keeps the live connection.
+        expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );

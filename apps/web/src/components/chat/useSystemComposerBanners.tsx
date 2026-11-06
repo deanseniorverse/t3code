@@ -1,5 +1,5 @@
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { type EnvironmentId } from "@t3tools/contracts";
+import { resolveEnvironmentLabel, type EnvironmentId } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
@@ -134,7 +134,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchServerLabel =
     hasMultipleRegisteredEnvironments && activeThreadEnvironmentId !== null
-      ? `${activeEnvironment?.label ?? serverConfig?.environment.label ?? activeThreadEnvironmentId} server`
+      ? `${activeEnvironment?.label ?? (serverConfig ? resolveEnvironmentLabel(serverConfig) : null) ?? activeThreadEnvironmentId} server`
       : "server";
   const serverUpdateEnvironmentId = activeThreadEnvironmentId;
   const versionMismatchSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
