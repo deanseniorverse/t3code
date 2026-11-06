@@ -1,6 +1,9 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
-import { sortThreadsByStatusGroup } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  sortPinnedThreadsByOrderKey,
+  sortThreadsByStatusGroup,
+} from "@t3tools/client-runtime/state/thread-sort";
 
 import { hasUnseenCompletion, resolveSidebarThreadStatus } from "./Sidebar.logic";
 
@@ -33,4 +36,18 @@ export function sortThreadsByStatus<T extends StatusSortThread>(
     (thread) => statusGroup(thread, hasOpenSpecQuestions(thread)),
     observedReturnAt,
   );
+}
+
+/** The pin filter lists pinned threads by status like the main list; otherwise by dragged order. */
+export function sortPinnedSection<
+  T extends StatusSortThread & { readonly pinOrderKey?: string | null },
+>(
+  threads: readonly T[],
+  pinnedOnly: boolean,
+  observedReturnAt?: (thread: T) => number | undefined,
+  hasOpenSpecQuestions?: (thread: T) => boolean,
+): T[] {
+  return pinnedOnly
+    ? sortThreadsByStatus(threads, observedReturnAt, hasOpenSpecQuestions)
+    : sortPinnedThreadsByOrderKey(threads);
 }

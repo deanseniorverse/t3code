@@ -28,8 +28,10 @@ export interface PersistedUiState {
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
+  /** Fork-only: browser-only favorites, kept until `favoritePinMigration` pins them. */
   favoriteThreadKeys?: string[];
   sidebarFavoritesOnly?: boolean;
+  sidebarPinnedOnly?: boolean;
   sidebarEnvironmentScopeId?: string | null;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
@@ -40,8 +42,8 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   sidebarProjectScopeKeys: string[];
-  favoriteThreadKeys: string[];
-  sidebarFavoritesOnly: boolean;
+  legacyFavoriteThreadKeys: string[];
+  sidebarPinnedOnly: boolean;
   sidebarEnvironmentScopeId: string | null;
 }
 
@@ -65,8 +67,8 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKeys: [],
-  favoriteThreadKeys: [],
-  sidebarFavoritesOnly: false,
+  legacyFavoriteThreadKeys: [],
+  sidebarPinnedOnly: false,
   sidebarEnvironmentScopeId: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
@@ -160,8 +162,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
-    favoriteThreadKeys: sanitizeStringArray(parsed.favoriteThreadKeys),
-    sidebarFavoritesOnly: parsed.sidebarFavoritesOnly === true,
+    legacyFavoriteThreadKeys: sanitizeStringArray(parsed.favoriteThreadKeys),
+    sidebarPinnedOnly: (parsed.sidebarPinnedOnly ?? parsed.sidebarFavoritesOnly) === true,
     sidebarProjectScopeKeys: sanitizeStringArray(
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
     ),
@@ -240,8 +242,10 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
-        favoriteThreadKeys: state.favoriteThreadKeys,
-        sidebarFavoritesOnly: state.sidebarFavoritesOnly,
+        ...(state.legacyFavoriteThreadKeys.length > 0
+          ? { favoriteThreadKeys: state.legacyFavoriteThreadKeys }
+          : {}),
+        sidebarPinnedOnly: state.sidebarPinnedOnly,
         // Older clients read only this field.
         sidebarProjectScopeKey:
           state.sidebarProjectScopeKeys.length === 1
@@ -456,8 +460,8 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setSidebarEnvironmentScopeId: (environmentId: string | null) => void;
-  toggleThreadFavorite: (threadKey: string) => void;
-  setSidebarFavoritesOnly: (favoritesOnly: boolean) => void;
+  dropLegacyFavoriteThreadKeys: (threadKeys: readonly string[]) => void;
+  setSidebarPinnedOnly: (pinnedOnly: boolean) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -479,13 +483,13 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKeys: (projectKeys) =>
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
-  toggleThreadFavorite: (threadKey) =>
+  dropLegacyFavoriteThreadKeys: (threadKeys) =>
     set((state) => ({
-      favoriteThreadKeys: state.favoriteThreadKeys.includes(threadKey)
-        ? state.favoriteThreadKeys.filter((key) => key !== threadKey)
-        : [...state.favoriteThreadKeys, threadKey],
+      legacyFavoriteThreadKeys: state.legacyFavoriteThreadKeys.filter(
+        (key) => !threadKeys.includes(key),
+      ),
     })),
-  setSidebarFavoritesOnly: (favoritesOnly) => set({ sidebarFavoritesOnly: favoritesOnly }),
+  setSidebarPinnedOnly: (pinnedOnly) => set({ sidebarPinnedOnly: pinnedOnly }),
   setSidebarEnvironmentScopeId: (environmentId) =>
     set((state) => setSidebarEnvironmentScopeId(state, environmentId)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),

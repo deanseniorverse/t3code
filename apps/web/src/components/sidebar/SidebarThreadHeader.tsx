@@ -1,4 +1,4 @@
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, StarIcon, XIcon } from "lucide-react";
+import { FolderPlusIcon, PinIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,8 +16,8 @@ export interface SidebarThreadHeaderProps {
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   hasProjects: boolean;
   projectScope: ReactNode;
-  favoritesOnly: boolean;
-  onToggleFavoritesOnly: () => void;
+  pinnedOnly: boolean;
+  onTogglePinnedOnly: () => void;
   onNewProject: () => void;
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
@@ -38,8 +38,8 @@ export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
   projectScope,
-  favoritesOnly,
-  onToggleFavoritesOnly,
+  pinnedOnly,
+  onTogglePinnedOnly,
   onNewProject,
   onNewThread,
   newThreadDisabled,
@@ -109,11 +109,11 @@ export function SidebarThreadHeader({
         {hasProjects ? (
           <>
             <SidebarHeaderIconButton
-              label={favoritesOnly ? "Show all threads" : "Show favorites only"}
-              aria-pressed={favoritesOnly}
-              onClick={onToggleFavoritesOnly}
+              label={pinnedOnly ? "Show all threads" : "Show pinned only"}
+              aria-pressed={pinnedOnly}
+              onClick={onTogglePinnedOnly}
             >
-              <StarIcon className={cn(favoritesOnly && "fill-current")} />
+              <PinIcon className={cn(pinnedOnly && "fill-current")} />
             </SidebarHeaderIconButton>
             {projectScope}
             <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>

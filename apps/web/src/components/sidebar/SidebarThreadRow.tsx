@@ -44,7 +44,6 @@ import {
   PinOffIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
-  StarIcon,
   TerminalIcon,
   Undo2Icon,
   UserRoundIcon,
@@ -585,6 +584,7 @@ type SidebarThreadRowProps = {
   onUnsettle: (threadRef: ScopedThreadRef) => void;
   onSnooze: (threadRef: ScopedThreadRef, preset: Pick<SnoozePreset, "snoozedUntil">) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
+  onPin: (threadRef: ScopedThreadRef) => void;
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
@@ -648,6 +648,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     onThreadClick,
     onUnsettle,
     onUnsnooze,
+    onPin,
     onUnpin,
     openPullRequestsInRightPanel,
     renamingTitle,
@@ -900,12 +901,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     event.stopPropagation();
     onUnsnooze(threadRef);
   };
-  const isFavorite = useUiStateStore((state) => state.favoriteThreadKeys.includes(threadKey));
-  const toggleThreadFavorite = useUiStateStore((state) => state.toggleThreadFavorite);
-  const handleFavoriteClick = (event: ReactMouseEvent) => {
+  const handlePinClick = (event: ReactMouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    toggleThreadFavorite(threadKey);
+    onPin(threadRef);
   };
   const handleUnpinClick = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -1137,29 +1136,28 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     )
   ) : null;
 
-  const favoriteIndicator = sortable?.isDragging ? null : (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            aria-pressed={isFavorite}
-            onClick={handleFavoriteClick}
-            className={cn(
-              "inline-flex shrink-0 cursor-pointer items-center rounded-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              isFavorite
-                ? "text-warning-foreground hover:text-warning-foreground/80"
-                : "text-muted-foreground/65 opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/sidebar-row:opacity-100 group-focus-within/sidebar-row:opacity-100",
-            )}
-          />
-        }
-      >
-        <StarIcon aria-hidden className={cn("size-3", isFavorite && "fill-current")} />
-      </TooltipTrigger>
-      <TooltipPopup>{isFavorite ? "Remove from favorites" : "Add to favorites"}</TooltipPopup>
-    </Tooltip>
-  );
+  // Fork-only: an unpinned row offers its pin on hover, where favorites' star was.
+  const pinButton =
+    props.isPinned ||
+    !props.pinningSupported ||
+    !canOperateThread ||
+    sortable?.isDragging ? null : (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Pin thread"
+              onClick={handlePinClick}
+              className="inline-flex shrink-0 cursor-pointer items-center rounded-sm text-muted-foreground/65 opacity-0 outline-none transition-colors hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/sidebar-row:opacity-100 group-focus-within/sidebar-row:opacity-100"
+            />
+          }
+        >
+          <PinIcon aria-hidden className="size-3" />
+        </TooltipTrigger>
+        <TooltipPopup>Pin thread</TooltipPopup>
+      </Tooltip>
+    );
 
   const diff = latestRunDiff(thread);
   // Only the provider icon would remain, so the row drops the line instead of leaving it blank.
@@ -1293,7 +1291,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {title}
               {multiline ? titleLineProviderStack : null}
               {pinIndicator}
-              {favoriteIndicator}
+              {pinButton}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
@@ -1475,7 +1473,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   {props.projectDisplayName}
                 </span>
               ) : null}
-              {favoriteIndicator}
+              {pinButton}
               <span className="flex-1" />
               {sortable?.isDragging ? (
                 dragDestination

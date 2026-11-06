@@ -63,7 +63,7 @@ Placeholder: we define this process the first time we take an upstream update. I
 ### 7. Thread list sorted by status
 
 - **Goal:** the main list reads as a to-do list: what needs Dean first, what he has already seen last.
-- **What:** in the main (active) section: needs input or approval, then failed or limited, then unread Done, then read threads. Each group runs oldest first; read threads by when they were last opened. Working, snoozed, settled and pinned sections keep upstream behavior. Dragging to reorder the main list is gone, since the sort decides the order.
+- **What:** in the main (active) section: needs input or approval, then failed or limited, then unread Done, then read threads. Each group runs oldest first; read threads by when they were last opened. Working, snoozed, settled and pinned sections keep upstream behavior, except that the pin filter (#10) sorts pinned threads this way too. Dragging to reorder the main list is gone, since the sort decides the order.
 - **Where:** shared `sortThreadsByStatusGroup` in `packages/client-runtime/src/state/threadSort.ts` (+ test). Web supplies its groups in `apps/web/src/components/sidebarStatusSort.ts`, used in `Sidebar.tsx` (`sortedActive` and drag prediction). Mobile supplies them in `sortThreadsByListV2Status` (`apps/mobile/src/features/threads/threadListV2.ts`).
 - **Mobile:** active rows can no longer move up or down (Move up/down is pinned-only in `HomeScreen.tsx`, `ThreadNavigationSidebar.tsx`, `useThreadListV2.ts`; `ThreadArrangementSheet.tsx` refuses moves inside the active section).
 - **Rebase risk:** medium. Upstream's list sort options (`sortActiveBySend`, order keys, the Working shelf) may change; keep this sort for the active section on both clients.
@@ -96,12 +96,14 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **Rebase risk:** medium. This replaces upstream's dispatch-while-viewing logic, so re-apply against any changes there.
 - **Check after an update:** open a Done thread; it stays Done. Open another thread; the first moves to the read group.
 
-### 10. Favorite threads
+### 10. Pin filter
 
-- **Goal:** narrow a long thread list to what is in focus.
-- **What:** a star on each row (shown on hover, stays visible once on) and in the thread right-click menu. The star button beside the project filter switches the list between favorites and all threads. Both are saved per browser or app install, not on the server, so they don't sync between devices.
-- **Where:** `apps/web/src/uiStateStore.ts` (+ test), `components/Sidebar.tsx`, `sidebar/SidebarThreadHeader.tsx`, `sidebar/SidebarThreadRow.tsx`, `threadActionMenu.logic.ts`.
-- **Check after an update:** star a thread, turn on the filter, reload; only that thread shows and the filter is still on.
+- **Goal:** narrow a long thread list to what is in focus, with one mark that follows Dean to every device and to mobile.
+- **What:** the pin is the mark, stored by each thread's server, so it syncs. An unpinned row shows a pin on hover; the pinned row's pin unpins. The thread menu's Pin/Unpin and a pin toggle in the chat header do the same; the header toggle can pin a thread the filter hides. The pin button beside the project filter shows only pinned threads, sorted by the status sort (#7) instead of pin order; dragging can't reorder pins while it is on. Off, the list is upstream's: the pinned section on top in dragged order. The filter's on/off is saved per browser or app install. Pin rules are upstream's: pinned threads never auto-settle, and settling clears the pin.
+- **Old favorites:** the earlier browser-only stars (`favoriteThreadKeys` in local storage) become pins once, when each thread's server config loads, and the keys are then deleted. Threads on a machine without the `threadPinning` capability keep nothing. Keys for a machine that never connects stay stored until it does. The old filter's on/off carries over.
+- **Where:** `apps/web/src/favoritePinMigration.ts` (+ test, run from `Sidebar.tsx`), `uiStateStore.ts` (+ test: `sidebarPinnedOnly`, `legacyFavoriteThreadKeys`), `components/Sidebar.tsx` (`partitionSidebarThreads`, `NO_REORDERABLE_KEYS`), `sidebarStatusSort.ts` (`sortPinnedSection`, + test), `sidebar/SidebarThreadHeader.tsx`, `sidebar/SidebarThreadRow.tsx` (`pinButton`), `chat/ThreadPinToggle.tsx`, `chat/threadPinToggle.logic.ts` (+ test), `chat/ChatHeader.tsx`.
+- **Rebase risk:** low to medium. Upstream changes to the sidebar partition or pinned sort need the filter's sort re-applied. The migration can be deleted once no install still has favorites.
+- **Check after an update:** pin a thread from its chat header, turn on the filter, reload; only pinned threads show, ordered by status, and the filter is still on. Turn it off; pins sit on top in dragged order.
 
 ### 11. Pull requests only check out in their own repository
 
@@ -136,6 +138,6 @@ Placeholder: we define this process the first time we take an upstream update. I
 | 7. Status sort                                    | yes         | yes                             |
 | 8. Spec questions                                 | yes         | yes, summary in the card header |
 | 9. Unread until you leave                         | yes         | yes                             |
-| 10. Favorite threads                              | yes         | no                              |
+| 10. Pin filter                                    | yes         | pins sync; no filter            |
 | 11. PR checkout guard                             | yes         | server, refusal text            |
 | 12. Machine nicknames                             | yes         | shows the name, no rename       |

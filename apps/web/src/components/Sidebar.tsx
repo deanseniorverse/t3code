@@ -111,6 +111,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
+import { planFavoritePinMigration } from "../favoritePinMigration";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -193,7 +194,6 @@ import {
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
   sidebarThreadKeyAtY,
-  sortPinnedThreadsForSidebar,
   sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   useThreadJumpHintsVisible,
@@ -202,7 +202,7 @@ import {
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";
 import { useOpenSpecThreads } from "../specQuestionsState";
-import { sortThreadsByStatus } from "./sidebarStatusSort";
+import { sortPinnedSection, sortThreadsByStatus } from "./sidebarStatusSort";
 import {
   createSidebarCollisionDetection,
   createSidebarSortingStrategy,
@@ -342,7 +342,8 @@ interface SidebarThreadPartitionInput {
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
   readonly openSpecThreads: ReadonlySet<string>;
-  readonly favoriteThreadKeys: ReadonlySet<string> | null;
+  /** Fork-only: the sidebar's pin filter; pinned threads then sort by status, not pin order. */
+  readonly pinnedOnly: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -354,6 +355,8 @@ function threadShellKey(thread: Pick<SidebarThreadSummary, "environmentId" | "id
 }
 
 const NO_DRAGGED_ORDER: readonly string[] = [];
+// The pin filter sorts pinned threads by status, so a drag there has no order to write.
+const NO_REORDERABLE_KEYS: ReadonlySet<string> = new Set();
 const NO_DRAGGED_ORDERS: {
   readonly settledOrder: readonly string[];
   readonly activeOrder: readonly string[] | undefined;
@@ -460,12 +463,11 @@ function useSidebarThreads(input: {
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const openSpecThreads = useOpenSpecThreads(threads, threadShellKey);
-  const favoritesOnly = useUiStateStore((store) => store.sidebarFavoritesOnly);
-  const favoriteThreadKeyList = useUiStateStore((store) => store.favoriteThreadKeys);
+  const pinnedOnly = useUiStateStore((store) => store.sidebarPinnedOnly);
   const partition = partitionSidebarThreads({
     threads,
     openSpecThreads,
-    favoriteThreadKeys: favoritesOnly ? new Set(favoriteThreadKeyList) : null,
+    pinnedOnly,
     scopedProjectKeys,
     delegatedUnderParent,
     serverConfigs,
@@ -609,10 +611,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   } = input;
   const preciseNow = new Date().toISOString();
   const scoped = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
-  const visible =
-    input.favoriteThreadKeys === null
-      ? scoped
-      : scoped.filter((thread) => input.favoriteThreadKeys?.has(threadShellKey(thread)));
+  const visible = input.pinnedOnly ? scoped.filter((thread) => thread.pinnedAt != null) : scoped;
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -667,7 +666,12 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     }
   }
   // A loaded config gates dragging only; the sort must not depend on it, so web and mobile agree.
-  const sortedPinned = sortPinnedThreadsForSidebar(pinned);
+  const sortedPinned = sortPinnedSection(
+    pinned,
+    input.pinnedOnly,
+    inboxObservation.returnedAt,
+    (thread) => input.openSpecThreads.has(threadShellKey(thread)),
+  );
   const sortedActive = sortThreadsByStatus(active, inboxObservation.returnedAt, (thread) =>
     input.openSpecThreads.has(threadShellKey(thread)),
   );
@@ -1309,8 +1313,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
-  const sidebarFavoritesOnly = useUiStateStore((store) => store.sidebarFavoritesOnly);
-  const setSidebarFavoritesOnly = useUiStateStore((store) => store.setSidebarFavoritesOnly);
+  const sidebarPinnedOnly = useUiStateStore((store) => store.sidebarPinnedOnly);
+  const setSidebarPinnedOnly = useUiStateStore((store) => store.setSidebarPinnedOnly);
+  const legacyFavoriteThreadKeys = useUiStateStore((store) => store.legacyFavoriteThreadKeys);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pins the old browser-only favorites on each server once its config arrives
+  useEffect(() => {
+    if (legacyFavoriteThreadKeys.length === 0) return;
+    const plan = planFavoritePinMigration({
+      keys: legacyFavoriteThreadKeys,
+      supportsPinning: (environmentId) => {
+        const config = serverConfigs.get(environmentId);
+        return config === undefined
+          ? undefined
+          : config.environment.capabilities.threadPinning === true;
+      },
+      isPinned: (ref) => readThreadShell(ref)?.pinnedAt != null,
+    });
+    if (plan.drop.length === 0) return;
+    useUiStateStore.getState().dropLegacyFavoriteThreadKeys(plan.drop);
+    for (const ref of plan.pin) void pinThread(ref);
+  }, [legacyFavoriteThreadKeys, serverConfigs, pinThread]);
   const {
     openSpecThreads,
     workingShelfEnabled,
@@ -2064,7 +2086,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             target,
             pinnedOrder: pinnedKeys,
             pinnedKeysById,
-            reorderableKeys: draggableThreadKeys,
+            reorderableKeys: sidebarPinnedOnly ? NO_REORDERABLE_KEYS : draggableThreadKeys,
             activeOrder: activeKeys,
             activeKeysById,
             activeReorderableKeys: activeReorderableThreadKeys,
@@ -2097,7 +2119,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       target,
       pinnedOrder: pinnedKeys,
       pinnedKeysById,
-      reorderableKeys: draggableThreadKeys,
+      reorderableKeys: sidebarPinnedOnly ? NO_REORDERABLE_KEYS : draggableThreadKeys,
       activeOrder: activeKeys,
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
@@ -2634,9 +2656,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   }
                 : null,
               isPinned,
-              isFavorite: useUiStateStore
-                .getState()
-                .favoriteThreadKeys.includes(scopedThreadKey(threadRef)),
               isSettled,
               autoSettleEnabled: thread.autoSettleDisabledAt == null,
               isSnoozed,
@@ -2789,9 +2808,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
             return;
           }
-          case "toggle-favorite":
-            useUiStateStore.getState().toggleThreadFavorite(scopedThreadKey(threadRef));
-            return;
           case "mark-unread":
             markThreadUnread(threadRef);
             return;
@@ -2986,8 +3002,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
-              favoritesOnly={sidebarFavoritesOnly}
-              onToggleFavoritesOnly={() => setSidebarFavoritesOnly(!sidebarFavoritesOnly)}
+              pinnedOnly={sidebarPinnedOnly}
+              onTogglePinnedOnly={() => setSidebarPinnedOnly(!sidebarPinnedOnly)}
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -3403,6 +3419,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onUnsettle={attemptUnsettle}
                             onSnooze={attemptSnooze}
                             onUnsnooze={attemptUnsnooze}
+                            onPin={attemptPin}
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}

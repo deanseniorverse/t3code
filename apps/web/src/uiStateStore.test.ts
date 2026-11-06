@@ -20,8 +20,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKeys: [],
-    favoriteThreadKeys: [],
-    sidebarFavoritesOnly: false,
+    legacyFavoriteThreadKeys: [],
+    sidebarPinnedOnly: false,
     sidebarEnvironmentScopeId: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -129,8 +129,8 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
-      favoriteThreadKeys: [],
-      sidebarFavoritesOnly: false,
+      legacyFavoriteThreadKeys: [],
+      sidebarPinnedOnly: false,
       sidebarEnvironmentScopeId: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
@@ -237,8 +237,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
-      favoriteThreadKeys: [],
-      sidebarFavoritesOnly: false,
+      sidebarPinnedOnly: false,
       sidebarProjectScopeKey: null,
       sidebarEnvironmentScopeId: null,
       threadChangedFilesExpansionVersion: 2,
@@ -258,7 +257,12 @@ describe("uiStateStore persistence", () => {
   it("restores the sidebar project and environment scope across reloads", () => {
     const keys = ["github.com/pingdotgg/t3code", "github.com/pingdotgg/uploadthing"];
     persistState(
-      makeUiState({ sidebarProjectScopeKeys: keys, sidebarEnvironmentScopeId: "environment-air" }),
+      makeUiState({
+        sidebarProjectScopeKeys: keys,
+        sidebarEnvironmentScopeId: "environment-air",
+        legacyFavoriteThreadKeys: ["environment-air:thread-1"],
+        sidebarPinnedOnly: true,
+      }),
     );
 
     const persisted = JSON.parse(
@@ -267,10 +271,12 @@ describe("uiStateStore persistence", () => {
 
     expect(parsePersistedState(persisted)).toMatchObject({
       sidebarProjectScopeKeys: keys,
-      favoriteThreadKeys: [],
-      sidebarFavoritesOnly: false,
+      legacyFavoriteThreadKeys: ["environment-air:thread-1"],
+      sidebarPinnedOnly: true,
       sidebarEnvironmentScopeId: "environment-air",
     });
+    // The favorites filter's saved state carries over to the pinned filter.
+    expect(parsePersistedState({ sidebarFavoritesOnly: true }).sidebarPinnedOnly).toBe(true);
   });
 
   it("keeps a single-project scope readable by older clients", () => {
