@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import {
   threadSearchMatchKey,
@@ -19,7 +20,6 @@ import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/sh
 import {
   createInboxReturnTracker,
   isThreadWorking,
-  sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
@@ -27,6 +27,7 @@ import {
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
+  sortThreadsByStatusGroup,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
@@ -242,16 +243,35 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-export function sortThreadsForListV2<
-  T extends {
-    readonly id: string;
-    readonly createdAt: string;
-    readonly unsettledAt?: string | null | undefined;
-    readonly activeOrderKey?: string | null | undefined;
-    readonly environmentId?: string | undefined;
-  },
->(threads: readonly T[]): T[] {
-  return sortActiveThreadsByOrderKey(threads);
+function threadListV2StatusGroup(thread: EnvironmentThreadShell, hasOpenSpecQuestions: boolean) {
+  const status = statusWithOpenSpecQuestions(
+    resolveThreadListV2Status(thread),
+    thread,
+    hasOpenSpecQuestions,
+  );
+  if (status === "input" || status === "approval" || status === "request") return 0;
+  if (status === "failed" || status === "limited") return 1;
+  if (status === "ready" && threadHasUnseenCompletion(thread)) return 2;
+  return 3;
+}
+
+/** The main list as a to-do list: needs input, failed, unread Done, then read threads. */
+const EMPTY_SPEC_THREAD_KEYS: ReadonlySet<string> = new Set();
+
+export function threadSpecListKey(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) {
+  return `${thread.environmentId}:${thread.id}`;
+}
+
+export function sortThreadsByListV2Status(
+  threads: readonly EnvironmentThreadShell[],
+  observedReturnAt?: (thread: EnvironmentThreadShell) => number | undefined,
+  hasOpenSpecQuestions: (thread: EnvironmentThreadShell) => boolean = () => false,
+): EnvironmentThreadShell[] {
+  return sortThreadsByStatusGroup(
+    threads,
+    (thread) => threadListV2StatusGroup(thread, hasOpenSpecQuestions(thread)),
+    observedReturnAt,
+  );
 }
 
 export function getThreadListV2OrderedSection(input: {
@@ -609,6 +629,7 @@ export function buildThreadListV2Items(input: {
   readonly workingShelfExpanded?: boolean;
   readonly isWorking?: (thread: EnvironmentThreadShell) => boolean;
   readonly inboxReturnAt?: (thread: EnvironmentThreadShell) => number | undefined;
+  readonly openSpecThreadKeys?: ReadonlySet<string>;
   readonly snoozedShelfExpanded?: boolean;
   readonly settledShelfExpanded?: boolean;
   readonly selectedThreadKey?: string | null;
@@ -741,9 +762,9 @@ export function buildThreadListV2Items(input: {
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const orderedActive = sortThreadsByListV2Status(active, input.inboxReturnAt, (thread) =>
+    (input.openSpecThreadKeys ?? EMPTY_SPEC_THREAD_KEYS).has(threadSpecListKey(thread)),
+  );
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>

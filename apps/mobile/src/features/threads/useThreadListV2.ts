@@ -4,12 +4,14 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../../state/olderSettledShelf";
+import { useOpenSpecThreads } from "../../state/specQuestions";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
   threadListInboxReturns,
+  threadSpecListKey,
 } from "./threadListV2";
 import { computeThreadMoveAvailability } from "./threadOrder";
 
@@ -43,7 +45,6 @@ export function useThreadListV2(input: {
   readonly settlementEnvironmentIds: ReadonlySet<EnvironmentId>;
   readonly snoozeEnvironmentIds: ReadonlySet<EnvironmentId>;
   readonly pinReorderEnvironmentIds: ReadonlySet<EnvironmentId>;
-  readonly activeReorderEnvironmentIds: ReadonlySet<EnvironmentId>;
   readonly queuedThreadKeys: ReadonlySet<string>;
   readonly settledLimit: number;
   readonly now: string;
@@ -69,27 +70,22 @@ export function useThreadListV2(input: {
   // Up/down menu availability for every card, computed once per section per
   // rebuild (see computeThreadMoveAvailability): per-thread planner calls made
   // list construction quadratic, and this list rebuilds on every minute tick.
-  const sectionAvailability = (section: "pinned" | "active") =>
-    computeThreadMoveAvailability({
-      allThreads: threads,
-      section,
+  // Status decides the active order, so only pinned rows move up and down.
+  const moveAvailability = computeThreadMoveAvailability({
+    allThreads: threads,
+    section: "pinned",
+    pendingOrder: input.pendingOrder,
+    reorderableEnvironmentIds: input.pinReorderEnvironmentIds,
+    ordered: getThreadListV2OrderedSection({
+      threads,
+      section: "pinned",
       pendingOrder: input.pendingOrder,
-      reorderableEnvironmentIds:
-        section === "pinned" ? input.pinReorderEnvironmentIds : input.activeReorderEnvironmentIds,
-      ordered: getThreadListV2OrderedSection({
-        threads,
-        section,
-        pendingOrder: input.pendingOrder,
-        now: input.now,
-        settlementEnvironmentIds: input.settlementEnvironmentIds,
-        snoozeEnvironmentIds: input.snoozeEnvironmentIds,
-        queuedThreadKeys: input.queuedThreadKeys,
-      }),
-    });
-  const moveAvailability = new Map([
-    ...sectionAvailability("pinned"),
-    ...(workingShelfEnabled ? [] : sectionAvailability("active")),
-  ]);
+      now: input.now,
+      settlementEnvironmentIds: input.settlementEnvironmentIds,
+      snoozeEnvironmentIds: input.snoozeEnvironmentIds,
+      queuedThreadKeys: input.queuedThreadKeys,
+    }),
+  });
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const scopes = olderSettledScopes(input);
   const olderSettledShelf = useOlderSettledShelf({
@@ -98,7 +94,9 @@ export function useThreadListV2(input: {
     // A search lists only matches, so the shelf would page forever; loaded pages stay.
     visibleCount: input.searchQuery.trim().length === 0 ? input.settledLimit : 0,
   });
+  const openSpecThreadKeys = useOpenSpecThreads(threads, threadSpecListKey);
   const layout = buildThreadListV2Items({
+    openSpecThreadKeys,
     pendingOrder: input.pendingOrder,
     threads: threads.filter((thread) => thread.archivedAt === null),
     environmentId: input.environmentId,

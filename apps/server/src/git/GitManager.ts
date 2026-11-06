@@ -63,6 +63,12 @@ import {
   threadPullRequestKeyOf,
 } from "../sourceControl/threadPullRequests.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
+import {
+  foreignPullRequestDetail,
+  pullRequestMatchesRemotes,
+  pullRequestRepositoryKey,
+  readRawRemoteUrls,
+} from "./pullRequestCheckoutGuard.ts";
 
 import { GitManagerError, GitPullRequestMaterializationError } from "@t3tools/contracts";
 import {
@@ -242,12 +248,7 @@ interface BranchHeadContext {
   isCrossRepository: boolean;
 }
 
-export function pullRequestRepositoryKey(value: string): string | null {
-  const repositoryUrl = sourceControlDefinitions.parseChangeRequestUrl(value)?.link.repositoryUrl;
-  return repositoryUrl === undefined
-    ? null
-    : sourceControlDefinitions.repositoryKeyFromRemote(repositoryUrl);
-}
+export { pullRequestRepositoryKey };
 
 /** Null when the host did not name the repository the head lives in. */
 function resolveHeadRepositoryNameWithOwner(pullRequest: PullRequestHeadRemoteInfo): string | null {
@@ -2743,6 +2744,24 @@ export const make = Effect.gen(function* () {
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);
+
+      const remoteUrls = yield* readRawRemoteUrls(gitCore, input.cwd);
+      const matchesRemotes = pullRequestMatchesRemotes(pullRequest.url, remoteUrls);
+      // A bare number was resolved by the host from this workspace, so a keyless URL still fits.
+      if (
+        matchesRemotes === false ||
+        (matchesRemotes === null && !/^\d+$/.test(normalizedReference))
+      ) {
+        return yield* new GitManagerError({
+          operation: "preparePullRequestThread",
+          cwd: input.cwd,
+          detail: foreignPullRequestDetail({
+            number: pullRequest.number,
+            url: pullRequest.url,
+            remoteUrls,
+          }),
+        });
+      }
 
       if (input.mode === "local") {
         yield* ensureNoTrackedChanges(input.cwd, pullRequest.number);

@@ -3,7 +3,6 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
-import { sortInboxThreadsByReturn } from "@t3tools/client-runtime/state/thread-inbox";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, FlatList, Modal, Pressable, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -32,6 +31,7 @@ import {
 } from "./threadOrder";
 import {
   getThreadListV2OrderedSection,
+  sortThreadsByListV2Status,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   threadListInboxReturns,
@@ -197,13 +197,12 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
     );
     return {
       pinned,
-      active: workingShelfEnabled
-        ? sortInboxThreadsByReturn(active, threadListInboxReturns.returnedAt)
-        : active,
+      active: sortThreadsByListV2Status(active, threadListInboxReturns.returnedAt),
+      activeByOrderKey: active,
       snoozed: parked.filter((thread) => effectiveSnoozed(thread, { now })),
       settled: sortSettledThreads(parked.filter((thread) => !effectiveSnoozed(thread, { now }))),
     };
-  }, [threads, configs, now, queuedThreadKeys, pendingOrder, workingShelfEnabled]);
+  }, [threads, configs, now, queuedThreadKeys, pendingOrder]);
   const listedSettled = sections.settled.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettled);
   const visibleSettled = listedSettled.slice(0, settledVisibleCount);
@@ -211,14 +210,21 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
   const planners = useMemo(() => {
     const planner = (section: "pinned" | "active") =>
       createThreadMovePlanner({
-        ordered: sections[section],
+        ordered: section === "pinned" ? sections.pinned : sections.activeByOrderKey,
         allThreads: threads,
         section,
         reorderableEnvironmentIds: new Set(
           section === "pinned" || !workingShelfEnabled ? configs.keys() : [],
         ),
       });
-    return { pinned: planner("pinned"), active: planner("active") };
+    const active = planner("active");
+    // Status decides the active order, so threads only move into it, not within it.
+    const listedActive = new Set(sections.active.map(keyOf));
+    return {
+      pinned: planner("pinned"),
+      active: (movedId: string, destination: ThreadMoveDestination) =>
+        listedActive.has(movedId) ? null : active(movedId, destination),
+    };
   }, [sections, threads, configs, workingShelfEnabled]);
   const rows = useMemo(() => {
     const result: Row[] = [];

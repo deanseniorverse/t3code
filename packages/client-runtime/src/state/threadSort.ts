@@ -123,6 +123,49 @@ function activeThreadAnchorTimestampMs(thread: {
   );
 }
 
+type StatusGroupSortInput = Pick<
+  EnvironmentThreadShell,
+  "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun" | "lastVisitedAt"
+>;
+
+/**
+ * Fork-only: orders a list by status group (lowest first), each group oldest first.
+ * The last group (3, already read) runs by when each thread was last opened.
+ */
+export function sortThreadsByStatusGroup<T extends StatusGroupSortInput>(
+  threads: readonly T[],
+  group: (thread: T) => number,
+  observedReturnAt?: (thread: T) => number | undefined,
+): T[] {
+  const keys = new Map(
+    threads.map((thread) => {
+      const threadGroup = group(thread);
+      const returnedAt = Math.max(
+        toSortableTimestamp(thread.createdAt) ?? 0,
+        toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
+        toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
+        toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
+        observedReturnAt?.(thread) ?? 0,
+      );
+      const at =
+        threadGroup === 3
+          ? (toSortableTimestamp(thread.lastVisitedAt ?? undefined) ?? returnedAt)
+          : returnedAt;
+      return [thread, { group: threadGroup, at }] as const;
+    }),
+  );
+  return [...threads].sort((left, right) => {
+    const a = keys.get(left)!;
+    const b = keys.get(right)!;
+    return (
+      a.group - b.group ||
+      a.at - b.at ||
+      left.id.localeCompare(right.id) ||
+      left.environmentId.localeCompare(right.environmentId)
+    );
+  });
+}
+
 export function sortThreads<T extends { readonly id: string } & ThreadSortInput>(
   threads: readonly T[],
   sortOrder: SidebarThreadSortOrder,

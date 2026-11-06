@@ -210,3 +210,7 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 ## Additional tips
 
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## This fork
+
+This checkout is a fork of T3 Code; [FORK.md](FORK.md) lists what it adds and why. When you add or change a fork feature, update its FORK.md entry in the same commit: goal, what it does, where it lives, and how to check it after an upstream update.

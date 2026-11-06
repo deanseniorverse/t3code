@@ -166,7 +166,11 @@ export function createInboxReturnTracker() {
       };
     },
     getSnapshot: () => version,
-    observe(threads: readonly TrackedInboxThread[] | null): {
+    observe(
+      threads: readonly TrackedInboxThread[] | null,
+      // Fork-only: the web pin filter shelves working pins, so they get the exit grace too.
+      options?: { readonly pinsCanWork?: boolean },
+    ): {
       readonly isWorking: (thread: WorkingThreadInput & ThreadKeyInput) => boolean;
       readonly returnedAt: (thread: ThreadKeyInput) => number | undefined;
     } {
@@ -207,7 +211,7 @@ export function createInboxReturnTracker() {
         const excluded =
           thread.archivedAt != null ||
           thread.deletedAt != null ||
-          thread.pinnedAt != null ||
+          (thread.pinnedAt != null && options?.pinsCanWork !== true) ||
           thread.settledOverride === "settled" ||
           effectiveSnoozed(thread, { now: observedAt });
         const actual = isThreadWorking(thread);

@@ -559,6 +559,8 @@ export const PullRequestDetail = Schema.Struct({
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  /** False when no remote of this project is on the pull request's repository. Absent from older servers. */
+  checkoutAvailable: Schema.optional(Schema.Boolean),
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
   title: TrimmedNonEmptyString,

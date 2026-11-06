@@ -19,4 +19,17 @@ describe("ThreadMetadataMcpUpdateInput", () => {
       decodeUpdate({ action: "regenerate_title", clientRequestId: "metadata-\udc00" }),
     );
   });
+
+  it("pairs folders with set_folders only, as absolute paths", () => {
+    assert.deepEqual(
+      decodeUpdate({ action: "set_folders", folders: ["/work/clients-x", "/work/services-x"] })
+        .folders,
+      ["/work/clients-x", "/work/services-x"],
+    );
+    assert.deepEqual(decodeUpdate({ action: "set_folders", folders: [] }).folders, []);
+    assert.throws(() => decodeUpdate({ action: "set_folders" }));
+    assert.throws(() => decodeUpdate({ action: "set_folders", folders: ["relative/path"] }));
+    assert.throws(() => decodeUpdate({ action: "regenerate_title", folders: ["/work/x"] }));
+    assert.throws(() => decodeUpdate({ action: "rename", title: "T", folders: ["/work/x"] }));
+  });
 });

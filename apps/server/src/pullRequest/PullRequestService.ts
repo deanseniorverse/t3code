@@ -76,6 +76,8 @@ import {
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
+import { pullRequestMatchesRemotes, readRawRemoteUrls } from "../git/pullRequestCheckoutGuard.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -696,6 +698,7 @@ export const make = Effect.gen(function* () {
   const filesViewedStore = yield* PullRequestFilesViewed.PullRequestFilesViewedRepository;
   const readCache = yield* PullRequestReadCache.PullRequestReadCache;
   const clock = yield* Clock.Clock;
+  const git = yield* GitVcsDriver.GitVcsDriver;
 
   /**
    * Where each project's remote is served from, by the remote's recognised base URL: a remote no
@@ -1691,6 +1694,16 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  // An unreadable checkout says nothing about availability; the guard still refuses at checkout.
+  const withCheckoutAvailability = (detail: PullRequestDetail) =>
+    readRawRemoteUrls(git, detail.workspaceRoot).pipe(
+      Effect.map((remoteUrls): PullRequestDetail => ({
+        ...detail,
+        checkoutAvailable: pullRequestMatchesRemotes(detail.url, remoteUrls) === true,
+      })),
+      Effect.orElseSucceed(() => detail),
+    );
+
   const detailUncached: PullRequestService["Service"]["detail"] = (input) =>
     requireProject(input).pipe(
       Effect.flatMap((project) =>
@@ -1760,6 +1773,7 @@ export const make = Effect.gen(function* () {
               ? {}
               : { workflowApprovalsRequired: changeRequest.workflowApprovalsRequired }),
           })),
+          Effect.flatMap(withCheckoutAvailability),
         ),
       ),
     );

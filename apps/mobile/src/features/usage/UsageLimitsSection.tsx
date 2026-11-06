@@ -1,3 +1,4 @@
+import { connectionEntryLabel } from "@t3tools/client-runtime/connection";
 import * as Dialog from "../../components/ui/Dialog";
 import { RegistryContext, useAtomMount, useAtomValue } from "@effect/atom-react";
 import {
@@ -340,7 +341,7 @@ export function useRefreshLimits(
   );
   const failedLabels = selected
     .filter(([environmentId]) => failedIds.has(environmentId))
-    .map(([, presentation]) => presentation.entry.target.label);
+    .map(([, presentation]) => connectionEntryLabel(presentation.entry));
 
   const refresh = (afterPending: boolean) =>
     Promise.all(

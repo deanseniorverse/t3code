@@ -38,7 +38,6 @@ import {
   resolveThreadListV2SnoozePresets,
   resolveThreadListV2Status,
   resolveThreadListV2WokeAt,
-  sortThreadsForListV2,
   threadListV2ListItemsAreEqual,
   threadHasUnseenCompletion,
   type ThreadListV2ListItem,
@@ -216,14 +215,65 @@ describe("search lists ranked matches", () => {
   });
 });
 
-describe("sortThreadsForListV2", () => {
-  it("honors a saved active order and leaves new threads above it", () => {
-    const sorted = sortThreadsForListV2([
-      { id: "newer-arranged", createdAt: "2026-06-01T12:00:00.000Z", activeOrderKey: "t" },
-      { id: "older-arranged", createdAt: "2026-06-01T08:00:00.000Z", activeOrderKey: "f" },
-      { id: "new", createdAt: "2026-06-01T13:00:00.000Z" },
+describe("active section status order", () => {
+  it("lists input, failed, unread done, then read threads by oldest visit", () => {
+    const at = (hour: number) => `2026-06-01T${String(hour).padStart(2, "0")}:00:00.000Z`;
+    const failed = (lastErrorClass?: "usage_limit") => ({
+      status: "failed" as const,
+      activeRunId: null,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      providerName: "Codex",
+      lastError: "boom",
+      ...(lastErrorClass ? { lastErrorClass } : {}),
+      updatedAt: at(0),
+    });
+    const thread = (
+      id: string,
+      hour: number,
+      overrides: Partial<EnvironmentThreadShell> = {},
+    ): EnvironmentThreadShell =>
+      makeThread({
+        id: ThreadId.make(id),
+        title: id,
+        createdAt: at(0),
+        lastVisitedAt: at(0),
+        activeOrderKey: id === "done-new" ? "a" : null,
+        latestRun: {
+          runId: RunId.make(`run-${id}`),
+          status: "completed",
+          requestedAt: at(hour),
+          startedAt: at(hour),
+          completedAt: at(hour),
+          assistantMessageId: null,
+        },
+        ...overrides,
+      });
+    const layout = buildThreadListV2Items({
+      threads: [
+        thread("read-recent", 1, { lastVisitedAt: at(20) }),
+        thread("done-new", 12),
+        thread("limited", 11, { runtime: failed("usage_limit") }),
+        thread("read-old", 1, { lastVisitedAt: at(18) }),
+        thread("input-new", 9, { hasPendingUserInput: true }),
+        thread("failed", 8, { runtime: failed() }),
+        thread("done-old", 6),
+        thread("approval-old", 5, { hasPendingApprovals: true }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(layout.items.map((item) => item.thread.id)).toEqual([
+      "approval-old",
+      "input-new",
+      "failed",
+      "limited",
+      "done-old",
+      "done-new",
+      "read-old",
+      "read-recent",
     ]);
-    expect(sorted.map((thread) => thread.id)).toEqual(["new", "older-arranged", "newer-arranged"]);
   });
 });
 
@@ -883,30 +933,27 @@ describe("pending mobile thread moves", () => {
     }).items.map((item) => item.thread.id);
   }
 
-  it.each(["active", "pinned"] as const)(
-    "holds %s order through every intermediate key upsert",
-    (section) => {
-      const { rows, assignments, pending, update } = fixture(section);
-      let current = rows;
-      let hold: PendingThreadOrder | null = pending;
-      const desired = pending.orderedIds.map((id) => id.split(":")[1]);
+  it("holds pinned order through every intermediate key upsert", () => {
+    const { rows, assignments, pending, update } = fixture("pinned");
+    let current = rows;
+    let hold: PendingThreadOrder | null = pending;
+    const desired = pending.orderedIds.map((id) => id.split(":")[1]);
+    expect(layout(current, hold)).toEqual(desired);
+    for (const assignment of assignments) {
+      current = update(current, assignment);
+      hold = reconcilePendingThreadOrder(
+        hold!,
+        getThreadListV2OrderedSection({ threads: current, section: "pinned", now: NOW }),
+      );
+      expect(hold).not.toBeNull();
       expect(layout(current, hold)).toEqual(desired);
-      for (const assignment of assignments) {
-        current = update(current, assignment);
-        hold = reconcilePendingThreadOrder(
-          hold!,
-          getThreadListV2OrderedSection({ threads: current, section, now: NOW }),
-        );
-        expect(hold).not.toBeNull();
-        expect(layout(current, hold)).toEqual(desired);
-      }
-      expect(reconcilePendingThreadOrder({ ...hold!, commandsComplete: true }, current)).toBeNull();
-      expect(layout(current, null)).toEqual(desired);
-    },
-  );
+    }
+    expect(reconcilePendingThreadOrder({ ...hold!, commandsComplete: true }, current)).toBeNull();
+    expect(layout(current, null)).toEqual(desired);
+  });
 
   it("keeps the action guard pending when receipts precede canonical shells", () => {
-    const { rows, assignments, pending, update } = fixture();
+    const { rows, assignments, pending, update } = fixture("pinned");
     let hold: PendingThreadOrder | null = { ...pending, commandsComplete: true };
     let current = rows;
     expect(reconcilePendingThreadOrder(hold, current)).toBe(hold);
@@ -1613,9 +1660,9 @@ describe("Working section beta", () => {
     const layout = build();
     expect(ids(layout)).toEqual([
       "pinned-working",
-      "finished-late",
       "asks-approval",
       "finished-early",
+      "finished-late",
     ]);
     expect(layout.workingCount).toBe(1);
     expect(layout.workingShelfHeaderIndex).toBe(4);
@@ -1658,7 +1705,7 @@ describe("Working section beta", () => {
       inboxReturnAt: (thread) =>
         thread.id === "finished-early" ? Date.parse("2026-06-01T04:00:00.000Z") : undefined,
     });
-    expect(ids(layout).slice(1)).toEqual(["finished-early", "finished-late", "asks-approval"]);
+    expect(ids(layout).slice(1)).toEqual(["asks-approval", "finished-late", "finished-early"]);
   });
 
   it("places the shelf after queued tasks and before snoozed and settled threads", () => {

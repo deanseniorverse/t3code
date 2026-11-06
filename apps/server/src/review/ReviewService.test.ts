@@ -22,7 +22,11 @@ function layer(input: {
   readonly worktreesDirectory?: string;
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
   readonly projectRoots?: ReadonlyArray<string> | "unavailable";
-  readonly threadWorktrees?: ReadonlyArray<{ worktreePath: string; deleted?: boolean }>;
+  readonly threadWorktrees?: ReadonlyArray<{
+    worktreePath?: string;
+    folders?: ReadonlyArray<string>;
+    deleted?: boolean;
+  }>;
   readonly gitWorktrees?: ReadonlyArray<string>;
 }) {
   const projectRoots = input.projectRoots ?? [];
@@ -41,7 +45,7 @@ function layer(input: {
                 ${`thread-${index}`}, 'project-0', 'Thread', 'codex', 'full-access', 'default',
                 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
                 ${thread.deleted ? "2026-01-02T00:00:00.000Z" : null},
-                ${JSON.stringify({ worktreePath: thread.worktreePath })}
+                ${JSON.stringify({ worktreePath: thread.worktreePath, folders: thread.folders })}
               )
             `;
           }
@@ -188,48 +192,60 @@ describe("ReviewService", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("allows the worktree a thread is bound to, and nothing else outside the project", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const project = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
-      const bound = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-bound-" });
-      const deleted = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-deleted-" });
-      const unbound = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-unbound-" });
-      const claimed = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-claimed-" });
-      yield* fs.makeDirectory(`${bound}/sub`);
+  it.effect(
+    "allows a thread's bound worktree and attached folders, and nothing else outside the project",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+        const project = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
+        const bound = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-bound-" });
+        const deleted = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-deleted-" });
+        const unbound = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-unbound-" });
+        const claimed = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-claimed-" });
+        const attached = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-attached-" });
+        const detached = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-detached-" });
+        yield* fs.makeDirectory(`${bound}/sub`);
 
-      const review = (cwd: string) =>
-        Effect.gen(function* () {
-          const service = yield* ReviewService.ReviewService;
-          return yield* service.getDiffPreview({ cwd });
-        }).pipe(
-          Effect.provide(
-            layer({
-              workspaceRoot,
-              baseDir,
-              projectRoots: [project],
-              gitWorktrees: [project, bound, deleted],
-              threadWorktrees: [
-                { worktreePath: bound },
-                { worktreePath: claimed },
-                { worktreePath: deleted, deleted: true },
-                { worktreePath: "t3-review-relative" },
-                { worktreePath: "/" },
-              ],
-            }),
-          ),
-        );
+        const review = (cwd: string) =>
+          Effect.gen(function* () {
+            const service = yield* ReviewService.ReviewService;
+            return yield* service.getDiffPreview({ cwd });
+          }).pipe(
+            Effect.provide(
+              layer({
+                workspaceRoot,
+                baseDir,
+                projectRoots: [project],
+                gitWorktrees: [project, bound, deleted],
+                threadWorktrees: [
+                  { worktreePath: bound },
+                  { worktreePath: claimed },
+                  { worktreePath: deleted, deleted: true },
+                  { worktreePath: "t3-review-relative" },
+                  { worktreePath: "/" },
+                  { folders: [attached, "/", "t3-review-relative"] },
+                  { folders: [detached], deleted: true },
+                ],
+              }),
+            ),
+          );
 
-      for (const cwd of [bound, `${bound}/sub`]) {
-        assert.strictEqual((yield* review(cwd)).cwd, cwd);
-      }
-      for (const cwd of [deleted, unbound, claimed, `${process.cwd()}/t3-review-relative`]) {
-        const error = yield* review(cwd).pipe(Effect.flip);
-        assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
-      }
-    }).pipe(Effect.provide(NodeServices.layer)),
+        for (const cwd of [bound, `${bound}/sub`, attached]) {
+          assert.strictEqual((yield* review(cwd)).cwd, cwd);
+        }
+        for (const cwd of [
+          deleted,
+          unbound,
+          claimed,
+          detached,
+          `${process.cwd()}/t3-review-relative`,
+        ]) {
+          const error = yield* review(cwd).pipe(Effect.flip);
+          assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
+        }
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("allows a thread's worktree linked from a managed folder to a checkout elsewhere", () =>

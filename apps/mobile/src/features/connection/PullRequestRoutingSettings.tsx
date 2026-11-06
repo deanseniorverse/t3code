@@ -6,6 +6,7 @@ import {
   pullRequestRoutingConnectionKey,
   pullRequestRoutingPermissionFor,
   type PullRequestRoutingPermission,
+  connectionEntryLabel,
 } from "@t3tools/client-runtime/connection";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
@@ -55,14 +56,14 @@ export function PullRequestRoutingSettings() {
             <View key={environmentId}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`${entry.target.label} pull request routing`}
+                accessibilityLabel={`${connectionEntryLabel(entry)} pull request routing`}
                 accessibilityState={{ expanded: expanded === environmentId }}
                 className="flex-row items-center gap-3 p-4"
                 onPress={() => setExpanded(expanded === environmentId ? null : environmentId)}
               >
                 <View className="min-w-0 flex-1 gap-0.5">
                   <Text className="text-base font-t3-bold text-foreground">
-                    {entry.target.label}
+                    {connectionEntryLabel(entry)}
                   </Text>
                   <Text className="text-xs text-foreground-muted" numberOfLines={1}>
                     {connectionCatalogDisplayUrl(entry) ?? "T3 Connect"}

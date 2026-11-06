@@ -194,6 +194,8 @@ export interface EnvironmentThreadShell {
   /** Server-tracked open history for search ranking. */
   readonly opens?: import("@t3tools/contracts").OrchestrationV2ThreadOpens | null;
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
+  /** Folders beyond the thread's checkout that its work reaches. */
+  readonly folders?: ReadonlyArray<string>;
   readonly deletedAt: string | null;
   readonly source: OrchestrationV2ThreadShell;
 }
@@ -343,6 +345,7 @@ export function presentThreadShell(
       ? {}
       : { lastVisitedAt: nullableIso(thread.lastVisitedAt) }),
     opens: thread.opens ?? null,
+    ...(thread.folders === undefined ? {} : { folders: thread.folders }),
     titleRegeneration:
       thread.titleRegeneration == null
         ? null

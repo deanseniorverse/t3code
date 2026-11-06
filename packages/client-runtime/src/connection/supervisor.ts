@@ -15,7 +15,11 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Tracer from "effect/Tracer";
 
-import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
+import {
+  connectionEntryLabel,
+  type ConnectionCatalogEntry,
+  type ConnectionRoute,
+} from "./catalog.ts";
 import * as Connectivity from "./connectivity.ts";
 import * as ConnectionDriver from "./driver.ts";
 import {
@@ -216,7 +220,7 @@ function connectingState(
 }
 
 function failureFromExit<A>(
-  target: ConnectionTarget,
+  label: string,
   exit: Exit.Exit<A, TracedAttemptFailure>,
   established: boolean,
   stable: boolean,
@@ -240,7 +244,7 @@ function failureFromExit<A>(
     failure: {
       error: new ConnectionTransientError({
         reason: "transport",
-        detail: `${target.label} connection failed unexpectedly.`,
+        detail: `${label} connection failed unexpectedly.`,
       }),
       attemptSpan: Option.none(),
     },
@@ -272,10 +276,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   | ConnectionWakeups.ConnectionWakeups
 > {
   const target = entry.target;
+  const label = connectionEntryLabel(entry);
   const usesRelay = connectionRoutes(entry).some(
     (route) => route.target._tag === "RelayConnectionTarget",
   );
-  const setupTimeoutDetail = `${target.label} did not respond during connection setup.${
+  const setupTimeoutDetail = `${label} did not respond during connection setup.${
     usesRelay ? ` ${NETWORK_BLOCKING_HINT}` : ""
   }`;
   yield* annotateTarget(target);
@@ -797,7 +802,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           if (longResume) return true;
           return yield* new ConnectionTransientError({
             reason: "timeout",
-            detail: `${target.label} did not respond to a connection health check.`,
+            detail: `${label} did not respond to a connection health check.`,
           });
         }
         if (probeEvent._tag === "ProbeCompleted") {
@@ -902,7 +907,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       const isUnexpectedDefect =
         !Cause.hasInterruptsOnly(establishment.exit.cause) &&
         !establishment.exit.cause.reasons.some(Cause.isFailReason);
-      const outcome = failureFromExit(target, establishment.exit, false, false);
+      const outcome = failureFromExit(label, establishment.exit, false, false);
       if (isUnexpectedDefect) {
         const defect = establishment.exit.cause.reasons.find(Cause.isDieReason)?.defect;
         yield* Effect.logError("Connection attempt failed with an unexpected defect.").pipe(
@@ -979,7 +984,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       } satisfies AttemptOutcome;
     }
     const outcome = failureFromExit(
-      target,
+      label,
       connectedExit,
       true,
       connectedForMs >= BACKOFF_RESET_AFTER_MS,

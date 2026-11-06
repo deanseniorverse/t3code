@@ -1,3 +1,4 @@
+import { connectionEntryLabel } from "@t3tools/client-runtime/connection";
 import { useAtomValue } from "@effect/atom-react";
 import { usesChatGptSharing } from "@t3tools/shared/usageLimits";
 import { useState } from "react";
@@ -41,7 +42,7 @@ export function ChatGptWelcomeCoordinator() {
               provider.instanceId,
               provider.auth.profileId ?? provider.auth.email ?? "default",
             ]),
-            environmentLabel: presentation.entry.target.label,
+            environmentLabel: connectionEntryLabel(presentation.entry),
             providerName: provider.displayName ?? "Codex",
           })),
   );

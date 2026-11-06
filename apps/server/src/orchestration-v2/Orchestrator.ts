@@ -569,6 +569,8 @@ const decodeUserInputAnswers = Schema.decodeUnknownEffect(
   ),
 );
 
+const DEFAULT_BRANCH_NAMES: ReadonlySet<string> = new Set(["main", "master"]);
+
 function pendingThreadTitleGenerationEffect(
   commandId: CommandId,
   threadId: ThreadId,
@@ -2625,12 +2627,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const title = yield* branchThreadTitle({
+      branch: command.branch,
+      projectId: command.projectId,
+      title: command.title,
+    });
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
       projectId: command.projectId,
-      title: command.title,
+      title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
       runtimeMode: command.runtimeMode,
@@ -2905,6 +2912,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: decided.success.thread,
     });
     return decided.success;
+  });
+
+  // An unnamed thread on a branch takes the branch's name; the default branch also names its repo.
+  const branchThreadTitle = Effect.fn("orchestrationV2.branchThreadTitle")(function* (
+    thread: Pick<OrchestrationV2AppThread, "branch" | "named" | "projectId" | "title">,
+  ) {
+    if (thread.named === true || !thread.branch) return thread.title;
+    if (!DEFAULT_BRANCH_NAMES.has(thread.branch)) return thread.branch;
+    const project = yield* projects.get(thread.projectId).pipe(Effect.orElseSucceed(Option.none));
+    return Option.isSome(project) ? `${project.value.title} · ${thread.branch}` : thread.branch;
   });
 
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
@@ -3343,7 +3360,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
     }
-    const updatedThread: OrchestrationV2AppThread = (() => {
+    const reducedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
         case "thread.archive":
           return {
@@ -3491,6 +3508,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             ...(command.title === undefined ? {} : { title: command.title }),
+            ...(command.title !== undefined || command.regenerateTitle === true
+              ? { named: true }
+              : {}),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
             limitRecovery?.snooze === true &&
@@ -3509,6 +3529,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            ...(command.folders === undefined ? {} : { folders: command.folders }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {
@@ -3783,6 +3804,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           };
       }
     })();
+    // A branch change, or an automatic title arriving for an unnamed branch thread, keeps the branch name.
+    const updatedThread: OrchestrationV2AppThread =
+      (command.type === "thread.metadata.update" && command.branch !== undefined) ||
+      command.type === "thread.title.regeneration.complete"
+        ? { ...reducedThread, title: yield* branchThreadTitle(reducedThread) }
+        : reducedThread;
     if (
       command.type === "thread.pull-request-link.sync" ||
       command.type === "thread.pull-request-watch.sync"
@@ -5328,6 +5355,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
     if (
       !isNativeMaintenanceCommand(command) &&
+      // The branch already names an unnamed branch thread.
+      !(projection.thread.branch && projection.thread.named !== true) &&
       ((command.titleSeed !== undefined &&
         (yield* projectionStore
           .getMessageCount(command.threadId)

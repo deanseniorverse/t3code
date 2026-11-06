@@ -18,6 +18,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type EnvironmentId,
+  isGitManagerError,
   type MessageId,
 } from "@t3tools/contracts";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
@@ -653,7 +654,11 @@ function reportCommandFailure(
   });
   return {
     action,
-    message: error instanceof Error ? error.message : "The message could not be sent.",
+    message: isGitManagerError(error)
+      ? error.detail
+      : error instanceof Error
+        ? error.message
+        : "The message could not be sent.",
   };
 }
 
