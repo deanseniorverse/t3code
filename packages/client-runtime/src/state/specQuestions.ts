@@ -101,12 +101,16 @@ export function threadSpecKey(
   return JSON.stringify([thread.environmentId, slug, roots]);
 }
 
+const parseSpecsConfigFile = (file: ProjectReadFileResult) =>
+  file.exists === false ? DEFAULT_SPECS_CONFIG : parseSpecsConfig(file.contents);
+
 export function createThreadSpecAtoms<E>(
   readFile: (
     target: SpecFileTarget,
   ) => Atom.Atom<AsyncResult.AsyncResult<ProjectReadFileResult, E>>,
 ) {
   const noSpecAtom = Atom.make<ThreadSpec | null>(null);
+  const noDocsAtom = Atom.make<ReadonlyArray<SpecFileTarget>>([]);
   const family = Atom.family((key: string) =>
     Atom.make((get): ThreadSpec | null => {
       const [environmentId, slug, roots] = JSON.parse(key) as [EnvironmentId, string, string[]];
@@ -114,10 +118,7 @@ export function createThreadSpecAtoms<E>(
         const configFile = get(readFile(specFileTarget(environmentId, root, SPECS_CONFIG_FILE)));
         if (AsyncResult.isFailure(configFile)) continue;
         if (!AsyncResult.isSuccess(configFile)) return null;
-        const config =
-          configFile.value.exists === false
-            ? DEFAULT_SPECS_CONFIG
-            : parseSpecsConfig(configFile.value.contents);
+        const config = parseSpecsConfigFile(configFile.value);
         for (const location of config.specs) {
           const docPath = fillSpecPath(location.doc, slug);
           const doc = get(readFile(specFileTarget(environmentId, root, docPath)));
@@ -151,6 +152,20 @@ export function createThreadSpecAtoms<E>(
       return null;
     }).pipe(Atom.withLabel(`thread-spec:${key}`)),
   );
+  // Where a spec not found yet could still appear, so its reads can be repeated.
+  const missingDocsFamily = Atom.family((key: string) =>
+    Atom.make((get): ReadonlyArray<SpecFileTarget> => {
+      if (get(family(key)) !== null) return [];
+      const [environmentId, slug, roots] = JSON.parse(key) as [EnvironmentId, string, string[]];
+      return roots.flatMap((root) => {
+        const configFile = get(readFile(specFileTarget(environmentId, root, SPECS_CONFIG_FILE)));
+        if (!AsyncResult.isSuccess(configFile)) return [];
+        return parseSpecsConfigFile(configFile.value).specs.map((location) =>
+          specFileTarget(environmentId, root, fillSpecPath(location.doc, slug)),
+        );
+      });
+    }).pipe(Atom.withLabel(`thread-spec-missing-docs:${key}`)),
+  );
   const listFamily = Atom.family((listKey: string) =>
     Atom.make((get): ReadonlyMap<string, ThreadSpec> => {
       const entries = JSON.parse(listKey) as ReadonlyArray<readonly [string, string]>;
@@ -162,9 +177,23 @@ export function createThreadSpecAtoms<E>(
       return specs;
     }).pipe(Atom.withLabel("thread-specs")),
   );
+  const listMissingDocsFamily = Atom.family((listKey: string) =>
+    Atom.make((get): ReadonlyMap<string, ReadonlyArray<SpecFileTarget>> => {
+      const entries = JSON.parse(listKey) as ReadonlyArray<readonly [string, string]>;
+      const missing = new Map<string, ReadonlyArray<SpecFileTarget>>();
+      for (const [threadKey, specKey] of entries) {
+        const docs = get(missingDocsFamily(specKey));
+        if (docs.length > 0) missing.set(threadKey, docs);
+      }
+      return missing;
+    }).pipe(Atom.withLabel("thread-specs-missing-docs")),
+  );
   return {
     threadSpecAtom: (key: string | null) => (key === null ? noSpecAtom : family(key)),
+    threadSpecMissingDocsAtom: (key: string | null) =>
+      key === null ? noDocsAtom : missingDocsFamily(key),
     threadSpecsAtom: listFamily,
+    threadSpecsMissingDocsAtom: listMissingDocsFamily,
   };
 }
 
@@ -182,17 +211,19 @@ export function threadSpecsKey(
   );
 }
 
-/** Reads to repeat so a list's specs stay current: both of each found spec's files. */
+/** Reads to repeat so a list stays current: each found spec's files, and where the rest may appear. */
 export function threadSpecRefreshTargets(
   specs: ReadonlyMap<string, ThreadSpec>,
+  missingDocs: ReadonlyMap<string, ReadonlyArray<SpecFileTarget>>,
 ): ReadonlyArray<SpecFileTarget> {
   const targets = new Map<string, SpecFileTarget>();
+  const add = (target: SpecFileTarget) => targets.set(JSON.stringify(target), target);
   for (const spec of specs.values()) {
     for (const path of new Set([spec.docPath, spec.questionsPath])) {
-      const target = specFileTarget(spec.environmentId, spec.root, path);
-      targets.set(JSON.stringify(target), target);
+      add(specFileTarget(spec.environmentId, spec.root, path));
     }
   }
+  for (const docs of missingDocs.values()) docs.forEach(add);
   return [...targets.values()];
 }
 
