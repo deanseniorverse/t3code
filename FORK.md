@@ -21,7 +21,7 @@ Placeholder: we define this process the first time we take an upstream update. I
 
 - **Goal:** install the fork next to the official T3 Code (Beta) instead of replacing it.
 - **What:** its own product name, bundle id `com.t3tools.t3code.deno` and Electron profile folder, so window state, keychain item and single-instance lock are separate. Both apps share the same T3 home, so only one runs at a time.
-- **Update:** `scripts/update-deno-app.sh` builds this checkout, quits the app, installs and reopens it; `--no-build` skips the build, `--rollback` swaps back, `--restart` quits and reopens it, `--status` shows what is installed. It keeps working after the app quits, so an agent inside T3 Code can run it. If T3 Code is broken, run `claude` in Terminal from this folder and use `/update-deno-app`.
+- **Update:** `scripts/update-deno-app.sh` builds this checkout, quits the app, installs and reopens it, with a macOS notification before the quit and after the install; `--no-build` skips the build, `--rollback` swaps back, `--restart` quits and reopens it, `--status` shows what is installed. It keeps working after the app quits, so an agent inside T3 Code can run it. If T3 Code is broken, run `claude` in Terminal from this folder and use `/update-deno-app`.
 - **Where:** `apps/desktop/package.json`, `apps/desktop/src/app/DesktopEnvironment.ts`, `DesktopUserData.ts`, `packages/contracts/src/ipc.ts`, `scripts/build-desktop-artifact.ts` (+ tests), `scripts/update-deno-app.sh`, `.agents/skills/update-deno-app/`.
 - **Rebase risk:** upstream changes to app identity or the artifact script. Re-apply the id and name.
 - **Check after a rebase:** the DMG installs as "T3 Code (Deno)" beside "T3 Code (Beta)".

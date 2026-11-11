@@ -86,9 +86,14 @@ stage_dmg() {
   [ "$(bundle_id "$STAGED")" = "$BUNDLE_ID" ] || die "$dmg is not $APP_NAME"
 }
 
+notify() {
+  osascript -e "display notification \"$1\" with title \"$APP_NAME\"" >/dev/null 2>&1 || true
+}
+
 quit_app() {
   is_running "$APP_NAME" || return 0
   echo "quitting $APP_NAME..."
+  notify "${QUIT_REASON:-Restarting}. It reopens in a few seconds."
   osascript -e "quit app \"$APP_NAME\"" >/dev/null 2>&1 || true
   local waited=0
   while is_running "$APP_NAME"; do
@@ -114,8 +119,9 @@ open_app() {
 
 # Runs detached. Swaps the staged app in and restores the old one if the copy fails.
 install_staged() {
-  if ! quit_app; then
+  if ! QUIT_REASON="Restarting to install an update" quit_app; then
     echo "FAILED: $APP_NAME did not quit within 60 seconds; nothing changed"
+    notify "Update not installed: the app did not quit. Quit it and run the update again."
     return 1
   fi
   sleep 1
@@ -138,7 +144,7 @@ install_staged() {
   else
     open_app
   fi
-  osascript -e "display notification \"Version $(app_version "$APP_PATH") installed\" with title \"$APP_NAME\"" >/dev/null 2>&1 || true
+  notify "Update installed, version $(app_version "$APP_PATH")"
   echo "DONE"
 }
 
