@@ -487,20 +487,31 @@ function useSidebarThreads(input: {
 
   const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
     partition;
-  // The chosen group emptied, so the list is back on All; a later refill must not re-filter it.
-  if (partition.statusTab !== requestedStatusTab) setStatusTab(partition.statusTab);
+  const statusTab = partition.statusTab;
+  // A chosen shelf tab lists its shelf open, whatever the shelf's own toggle says.
+  const settledExpanded = settledShelfExpanded || statusTab === "settled";
+  const snoozedExpanded = snoozedShelfExpanded || statusTab === "snoozed";
+  const workingExpanded = workingShelfExpanded || statusTab === "working";
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
-    expanded: settledShelfExpanded,
+    expanded: settledExpanded,
     visibleCount: settledVisibleCount,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
-  const settledCount =
-    partition.statusTab === "all"
-      ? settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads)
-      : 0;
+  const unloadedSettledCount = olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const statusTabCounts = {
+    ...partition.statusTabCounts,
+    all: partition.statusTabCounts.all + unloadedSettledCount,
+    settled: partition.statusTabCounts.settled + unloadedSettledCount,
+  };
+  const settledCount = statusTab === "all" || statusTab === "settled" ? statusTabCounts.settled : 0;
+  // The chosen group emptied, so the list is back on All; a later refill must not re-filter it.
+  const settledTabEmptied = statusTab === "settled" && statusTabCounts.settled === 0;
+  if (statusTab !== requestedStatusTab || settledTabEmptied) {
+    setStatusTab(settledTabEmptied ? "all" : statusTab);
+  }
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
@@ -514,13 +525,13 @@ function useSidebarThreads(input: {
     }
     return visible.length === settledThreads.length ? settledThreads : visible;
   })();
-  const renderedSettledThreads = settledShelfExpanded
+  const renderedSettledThreads = settledExpanded
     ? visibleSettledThreads
     : routeThreadOnly(visibleSettledThreads, routeRowThreadKey);
-  const visibleSnoozedThreads = snoozedShelfExpanded
+  const visibleSnoozedThreads = snoozedExpanded
     ? snoozedThreads
     : routeThreadOnly(snoozedThreads, routeRowThreadKey);
-  const visibleWorkingThreads = workingShelfExpanded
+  const visibleWorkingThreads = workingExpanded
     ? workingThreads
     : routeThreadOnly(workingThreads, routeRowThreadKey);
   const projectFolders =
@@ -576,12 +587,13 @@ function useSidebarThreads(input: {
         count: current.count + SETTLED_TAIL_PAGE_COUNT,
       })),
     openSpecThreads,
+    statusTabCounts,
     setStatusTab,
-    settledShelfExpanded,
+    settledShelfExpanded: settledExpanded,
     toggleSettledShelf: () => setSettledShelfExpanded((value) => !value),
-    snoozedShelfExpanded,
+    snoozedShelfExpanded: snoozedExpanded,
     toggleSnoozedShelf: () => setSnoozedShelfExpanded((value) => !value),
-    workingShelfExpanded,
+    workingShelfExpanded: workingExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
     projectFolders,
     toggleProjectFolder: (group: SidebarProjectSnapshot) => {
@@ -703,10 +715,6 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
           preferredIds: optimisticDrop.order,
           getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         });
-  const status = applySidebarStatusTab([orderedPinned, orderedActive], input.statusTab, (thread) =>
-    input.openSpecThreads.has(threadShellKey(thread)),
-  );
-  const allStatuses = status.tab === "all";
   const sortedWorking = sortWorkingThreadsBySend(working);
   const sortedSnoozed = snoozed.toSorted(
     (left, right) =>
@@ -714,16 +722,27 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       firstValidTimestampMs(right.snoozedUntil ?? null),
   );
   const sortedSettled = sortSettledThreads(settled);
+  const status = applySidebarStatusTab(
+    {
+      pinned: orderedPinned,
+      active: orderedActive,
+      working: sortedWorking,
+      snoozed: sortedSnoozed,
+      settled: sortedSettled,
+    },
+    input.statusTab,
+    (thread) => input.openSpecThreads.has(threadShellKey(thread)),
+  );
   return {
     statusTab: status.tab,
     statusTabCounts: status.counts,
-    pinnedThreads: status.lists[0]!,
+    pinnedThreads: status.pinned,
     draggableThreadKeys: draggable,
     activeReorderableThreadKeys: activeReorderable,
-    activeThreads: status.lists[1]!,
-    workingThreads: allStatuses ? sortedWorking : EMPTY_THREADS,
-    snoozedThreads: allStatuses ? sortedSnoozed : EMPTY_THREADS,
-    settledThreads: allStatuses ? sortedSettled : EMPTY_THREADS,
+    activeThreads: status.active,
+    workingThreads: status.working,
+    snoozedThreads: status.snoozed,
+    settledThreads: status.settled,
     // Search covers every thread, whichever status tab is chosen.
     searchableThreads: [
       ...orderedPinned,
@@ -2019,8 +2038,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
     }
-    // A status tab lists one group, so the Settled shelf and its drop target are out too.
-    if (statusTab !== "all") return items;
+    // Any other status tab lists one group, so the Settled shelf and its drop target are out.
+    if (statusTab !== "all" && statusTab !== "settled") return items;
     items.push({ kind: "marker", marker: "settled-header" });
     const settledRows = rowsOf(renderedSettledThreads, "settled");
     items.push({ kind: "marker", marker: "settled-placeholder" });

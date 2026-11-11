@@ -117,6 +117,9 @@ const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
   failed: "Failed",
   done: "Done",
   read: "Read",
+  working: "Working",
+  snoozed: "Snoozed",
+  settled: "Settled",
 };
 
 /** Fork-only: one tab per status group that has threads, each with its count. */
@@ -133,7 +136,7 @@ export function SidebarStatusTabs(props: {
     <div
       role="tablist"
       aria-label="Filter threads by status"
-      className="flex min-w-0 flex-wrap items-center gap-1 px-2 pb-1"
+      className="flex min-w-0 flex-wrap items-center gap-0.5 px-2 pb-1"
     >
       {tabs.map((tab) => (
         <Button

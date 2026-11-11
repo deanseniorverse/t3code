@@ -14,7 +14,16 @@ type StatusSortThread = Parameters<typeof resolveSidebarThreadStatus>[0] &
     "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun" | "lastVisitedAt"
   >;
 
-export const SIDEBAR_STATUS_TABS = ["input", "failed", "done", "read"] as const;
+/** In list order: the four status groups of the main list, then the shelves. */
+export const SIDEBAR_STATUS_TABS = [
+  "input",
+  "failed",
+  "done",
+  "read",
+  "working",
+  "snoozed",
+  "settled",
+] as const;
 export type SidebarStatusTab = "all" | (typeof SIDEBAR_STATUS_TABS)[number];
 export type SidebarStatusTabCounts = Record<SidebarStatusTab, number>;
 
@@ -46,38 +55,60 @@ export function sortThreadsByStatus<T extends StatusSortThread>(
   );
 }
 
+interface SidebarStatusSections<T> {
+  readonly pinned: readonly T[];
+  readonly active: readonly T[];
+  readonly working: readonly T[];
+  readonly snoozed: readonly T[];
+  readonly settled: readonly T[];
+}
+
 /**
- * Counts each status tab and narrows the lists to the chosen one.
- * A tab whose group is empty falls back to "all", so it can be dropped from the row.
- * A working thread left in these lists belongs to no group and shows under "all" only.
+ * Counts each status tab and narrows the sections to the chosen one.
+ * A tab with no threads falls back to "all", so it can be dropped from the row; "settled"
+ * never does here, because older settled threads load in pages the caller counts.
+ * A working thread still in the pinned or main list counts as Working.
  */
 export function applySidebarStatusTab<T extends StatusSortThread>(
-  lists: readonly (readonly T[])[],
+  sections: SidebarStatusSections<T>,
   requested: SidebarStatusTab,
   hasOpenSpecQuestions: (thread: T) => boolean = () => false,
-): {
+): SidebarStatusSections<T> & {
   readonly tab: SidebarStatusTab;
   readonly counts: SidebarStatusTabCounts;
-  readonly lists: readonly (readonly T[])[];
 } {
-  const counts: SidebarStatusTabCounts = { all: 0, input: 0, failed: 0, done: 0, read: 0 };
+  const counts: SidebarStatusTabCounts = {
+    all: 0,
+    input: 0,
+    failed: 0,
+    done: 0,
+    read: 0,
+    working: sections.working.length,
+    snoozed: sections.snoozed.length,
+    settled: sections.settled.length,
+  };
   const tabOf = new Map<T, SidebarStatusTab>();
-  for (const thread of lists.flat()) {
+  for (const thread of [...sections.pinned, ...sections.active]) {
     const hasOpen = hasOpenSpecQuestions(thread);
-    counts.all += 1;
-    if (statusOf(thread, hasOpen) === "working") continue;
-    const tab = SIDEBAR_STATUS_TABS[statusGroup(thread, hasOpen)]!;
+    const tab =
+      statusOf(thread, hasOpen) === "working"
+        ? "working"
+        : SIDEBAR_STATUS_TABS[statusGroup(thread, hasOpen)]!;
     tabOf.set(thread, tab);
     counts[tab] += 1;
   }
-  const tab = counts[requested] === 0 ? "all" : requested;
+  for (const tab of SIDEBAR_STATUS_TABS) counts.all += counts[tab];
+  const tab = requested !== "settled" && counts[requested] === 0 ? "all" : requested;
+  if (tab === "all") return { ...sections, tab, counts };
+  const listed = (list: readonly T[]) => list.filter((thread) => tabOf.get(thread) === tab);
   return {
     tab,
     counts,
-    lists:
-      tab === "all"
-        ? lists
-        : lists.map((list) => list.filter((thread) => tabOf.get(thread) === tab)),
+    pinned: listed(sections.pinned),
+    active: listed(sections.active),
+    working: tab === "working" ? sections.working : [],
+    snoozed: tab === "snoozed" ? sections.snoozed : [],
+    settled: tab === "settled" ? sections.settled : [],
   };
 }
 

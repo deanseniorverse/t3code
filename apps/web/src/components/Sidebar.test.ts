@@ -58,6 +58,13 @@ describe("partitionSidebarThreads", () => {
       working: [],
     },
     {
+      statusTab: "working" as const,
+      tab: "working",
+      pinned: ["pinned-working"],
+      active: [],
+      working: ["unpinned-working"],
+    },
+    {
       statusTab: "failed" as const,
       tab: "all",
       pinned: ["pinned-working", "pinned-idle"],
@@ -87,7 +94,7 @@ describe("partitionSidebarThreads", () => {
       searchable: partition.searchableThreads.length,
     }).toEqual({
       tab: expected.tab,
-      counts: { all: 3, input: 1, failed: 0, done: 0, read: 1 },
+      counts: { all: 4, input: 1, failed: 0, done: 0, read: 1, working: 2, snoozed: 0, settled: 0 },
       pinned: expected.pinned,
       active: expected.active,
       working: expected.working,
