@@ -129,7 +129,7 @@ type StatusGroupSortInput = Pick<
 >;
 
 /**
- * Fork-only: orders a list by status group (lowest first), each group oldest first.
+ * Fork-only: orders a list by status group (lowest first), each group newest first.
  * The last group (3, already read) runs by when each thread was last opened.
  */
 export function sortThreadsByStatusGroup<T extends StatusGroupSortInput>(
@@ -159,7 +159,7 @@ export function sortThreadsByStatusGroup<T extends StatusGroupSortInput>(
     const b = keys.get(right)!;
     return (
       a.group - b.group ||
-      a.at - b.at ||
+      b.at - a.at ||
       left.id.localeCompare(right.id) ||
       left.environmentId.localeCompare(right.environmentId)
     );
@@ -371,4 +371,70 @@ export function sortActiveThreadsByOrderKey<
       (left.environmentId ?? "").localeCompare(right.environmentId ?? "")
     );
   });
+}
+
+/** In list order: the four status groups of the main list, then the shelves. */
+export const THREAD_STATUS_TABS = [
+  "input",
+  "failed",
+  "done",
+  "read",
+  "working",
+  "snoozed",
+  "settled",
+] as const;
+export type ThreadStatusTab = "all" | (typeof THREAD_STATUS_TABS)[number];
+export type ThreadStatusTabCounts = Record<ThreadStatusTab, number>;
+
+export interface ThreadStatusSections<T> {
+  readonly pinned: readonly T[];
+  readonly active: readonly T[];
+  readonly working: readonly T[];
+  readonly snoozed: readonly T[];
+  readonly settled: readonly T[];
+}
+
+/**
+ * Counts each status tab and narrows the sections to the chosen one.
+ * A tab with no threads falls back to "all", so it can be dropped from the row; "settled"
+ * never does here, because older settled threads load in pages the caller counts.
+ * `tabOf` places a pinned or main-list thread; a working one there counts as Working.
+ */
+export function applyThreadStatusTab<T>(
+  sections: ThreadStatusSections<T>,
+  requested: ThreadStatusTab,
+  tabOf: (thread: T) => "input" | "failed" | "done" | "read" | "working",
+): ThreadStatusSections<T> & {
+  readonly tab: ThreadStatusTab;
+  readonly counts: ThreadStatusTabCounts;
+} {
+  const counts: ThreadStatusTabCounts = {
+    all: 0,
+    input: 0,
+    failed: 0,
+    done: 0,
+    read: 0,
+    working: sections.working.length,
+    snoozed: sections.snoozed.length,
+    settled: sections.settled.length,
+  };
+  const tabs = new Map<T, ThreadStatusTab>();
+  for (const thread of [...sections.pinned, ...sections.active]) {
+    const tab = tabOf(thread);
+    tabs.set(thread, tab);
+    counts[tab] += 1;
+  }
+  for (const tab of THREAD_STATUS_TABS) counts.all += counts[tab];
+  const tab = requested !== "settled" && counts[requested] === 0 ? "all" : requested;
+  if (tab === "all") return { ...sections, tab, counts };
+  const listed = (list: readonly T[]) => list.filter((thread) => tabs.get(thread) === tab);
+  return {
+    tab,
+    counts,
+    pinned: listed(sections.pinned),
+    active: listed(sections.active),
+    working: tab === "working" ? sections.working : [],
+    snoozed: tab === "snoozed" ? sections.snoozed : [],
+    settled: tab === "settled" ? sections.settled : [],
+  };
 }

@@ -38,6 +38,7 @@ describe("partitionSidebarThreads", () => {
       workingShelfEnabled: true,
       openSpecThreads: new Set(),
       pinnedOnly: expected.pinnedOnly,
+      statusTab: "all",
       clockKey: "",
     });
     const ids = (list: readonly { readonly id: string }[]) => list.map((entry) => entry.id);
@@ -46,5 +47,80 @@ describe("partitionSidebarThreads", () => {
       active: ids(partition.activeThreads),
       working: ids(partition.workingThreads),
     }).toEqual({ pinned: expected.pinned, active: expected.active, working: expected.working });
+  });
+
+  it.each([
+    {
+      statusTab: "input" as const,
+      tab: "input",
+      pinned: ["pinned-idle"],
+      active: [],
+      working: [],
+    },
+    {
+      statusTab: "working" as const,
+      tab: "working",
+      pinned: ["pinned-working"],
+      active: [],
+      working: ["unpinned-working"],
+    },
+    {
+      statusTab: "failed" as const,
+      tab: "all",
+      pinned: ["pinned-working", "pinned-idle"],
+      active: ["unpinned-idle"],
+      working: ["unpinned-working"],
+    },
+  ])("narrows to the $statusTab tab, or to all when that group is empty", (expected) => {
+    const partition = partitionSidebarThreads({
+      threads,
+      scopedProjectKeys: null,
+      delegatedUnderParent: new Set(),
+      serverConfigs: new Map(),
+      optimisticDrop: null,
+      workingShelfEnabled: true,
+      openSpecThreads: new Set(["environment-test:pinned-idle"]),
+      pinnedOnly: false,
+      statusTab: expected.statusTab,
+      clockKey: "",
+    });
+    const ids = (list: readonly { readonly id: string }[]) => list.map((entry) => entry.id);
+    expect({
+      tab: partition.statusTab,
+      counts: partition.statusTabCounts,
+      pinned: ids(partition.pinnedThreads),
+      active: ids(partition.activeThreads),
+      working: ids(partition.workingThreads),
+      searchable: partition.searchableThreads.length,
+    }).toEqual({
+      tab: expected.tab,
+      counts: { all: 4, input: 1, failed: 0, done: 0, read: 1, working: 2, snoozed: 0, settled: 0 },
+      pinned: expected.pinned,
+      active: expected.active,
+      working: expected.working,
+      searchable: 4,
+    });
+  });
+
+  it("keeps settled threads under the pin filter, since settling clears the pin", () => {
+    const settled = {
+      ...thread("settled", null, false),
+      settledOverride: "settled" as const,
+      settledAt: idle.createdAt,
+    };
+    const partition = partitionSidebarThreads({
+      threads: [...threads, settled],
+      scopedProjectKeys: null,
+      delegatedUnderParent: new Set(),
+      serverConfigs: new Map([[idle.environmentId, {}]]) as never,
+      optimisticDrop: null,
+      workingShelfEnabled: true,
+      openSpecThreads: new Set(),
+      pinnedOnly: true,
+      statusTab: "settled",
+      clockKey: "",
+    });
+    expect(partition.settledThreads.map((entry) => entry.id)).toEqual(["settled"]);
+    expect(partition.activeThreads).toEqual([]);
   });
 });

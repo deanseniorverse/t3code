@@ -98,6 +98,20 @@ quit_app() {
   done
 }
 
+# One open right after a quit can be lost while the old instance is still shutting down,
+# so open until the app is seen running.
+open_app() {
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    open "$APP_PATH" || true
+    sleep 5
+    is_running "$APP_NAME" && return 0
+    echo "$APP_NAME is not running after open, attempt $attempt"
+  done
+  echo "could not open $APP_NAME; open it by hand"
+  return 0
+}
+
 # Runs detached. Swaps the staged app in and restores the old one if the copy fails.
 install_staged() {
   if ! quit_app; then
@@ -110,7 +124,7 @@ install_staged() {
   if ! mv "$STAGED" "$APP_PATH"; then
     [ ! -d "$PREVIOUS" ] || mv "$PREVIOUS" "$APP_PATH"
     echo "FAILED: could not install; kept the old app"
-    [ -n "${T3_DENO_INSTALL_DIR:-}" ] || open "$APP_PATH" || true
+    [ -n "${T3_DENO_INSTALL_DIR:-}" ] || open_app
     return 1
   fi
   echo "installed version $(app_version "$APP_PATH")"
@@ -122,7 +136,7 @@ install_staged() {
   if is_running "T3 Code (Beta)"; then
     echo "T3 Code (Beta) is running, so $APP_NAME was not opened"
   else
-    open "$APP_PATH"
+    open_app
   fi
   osascript -e "display notification \"Version $(app_version "$APP_PATH") installed\" with title \"$APP_NAME\"" >/dev/null 2>&1 || true
   echo "DONE"
@@ -134,7 +148,7 @@ restart_app() {
     return 1
   fi
   sleep 1
-  open "$APP_PATH"
+  open_app
   echo "DONE"
 }
 

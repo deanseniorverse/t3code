@@ -23,11 +23,16 @@ import {
   sortWorkingThreadsBySend,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
+  applyThreadStatusTab,
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
   sortThreadsByStatusGroup,
+} from "@t3tools/client-runtime/state/thread-sort";
+import type {
+  ThreadStatusTab,
+  ThreadStatusTabCounts,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
@@ -337,6 +342,10 @@ export interface ThreadListV2Layout {
   readonly nextSnoozeWakeAt: string | null;
   /** Threads listed only because their messages match the search. */
   readonly contentOnlyThreadKeys: ReadonlySet<string>;
+  /** The status tab the list shows: the requested one, or "all" once that one has no threads. */
+  readonly statusTab: ThreadStatusTab;
+  /** Threads per status tab; null while a search lists matches from every tab. */
+  readonly statusTabCounts: ThreadStatusTabCounts | null;
 }
 
 export interface ThreadListV2ThreadListItem {
@@ -638,6 +647,8 @@ export function buildThreadListV2Items(input: {
   readonly isListedSettled?: (thread: EnvironmentThreadShell) => boolean;
   /** Settled threads in scope that are not local (older settled threads not loaded). */
   readonly unloadedSettledCount?: number;
+  /** Lists one status tab's threads flat, without shelf headers. A search ignores it. */
+  readonly statusTab?: ThreadStatusTab;
 }): ThreadListV2Layout {
   const now = input.now;
   const pending =
@@ -759,36 +770,65 @@ export function buildThreadListV2Items(input: {
       settledShelfHeaderIndex: null,
       nextSnoozeWakeAt,
       contentOnlyThreadKeys,
+      statusTab: input.statusTab ?? "all",
+      statusTabCounts: null,
     };
   }
 
-  const orderedActive = sortThreadsByListV2Status(active, input.inboxReturnAt, (thread) =>
-    (input.openSpecThreadKeys ?? EMPTY_SPEC_THREAD_KEYS).has(threadSpecListKey(thread)),
+  const hasOpenSpecQuestions = (thread: EnvironmentThreadShell) =>
+    (input.openSpecThreadKeys ?? EMPTY_SPEC_THREAD_KEYS).has(threadSpecListKey(thread));
+  const unloadedSettledCount = input.unloadedSettledCount ?? 0;
+  const status = applyThreadStatusTab(
+    { pinned, active, working, snoozed, settled },
+    // An emptied Settled tab is not caught below, where older settled threads are not counted.
+    input.statusTab === "settled" && settled.length + unloadedSettledCount === 0
+      ? "all"
+      : (input.statusTab ?? "all"),
+    (thread) =>
+      (input.isWorking ?? isThreadWorking)(thread)
+        ? "working"
+        : (["input", "failed", "done", "read"] as const)[
+            threadListV2StatusGroup(thread, hasOpenSpecQuestions(thread))
+          ]!,
   );
-  const orderedWorking = sortWorkingThreadsBySend(working);
-  const orderedSnoozed = [...snoozed].sort(
+  const statusTab = status.tab;
+  const statusTabCounts = {
+    ...status.counts,
+    all: status.counts.all + unloadedSettledCount,
+    settled: status.counts.settled + unloadedSettledCount,
+  };
+  const orderedActive = sortThreadsByListV2Status(
+    status.active,
+    input.inboxReturnAt,
+    hasOpenSpecQuestions,
+  );
+  const orderedWorking = sortWorkingThreadsBySend(status.working);
+  const orderedSnoozed = [...status.snoozed].sort(
     (left, right) =>
       parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
   );
   const selectedThreadKey = input.selectedThreadKey ?? null;
   const visibleWorking =
-    input.workingShelfExpanded === true
+    input.workingShelfExpanded === true || statusTab === "working"
       ? orderedWorking
       : orderedWorking.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
   const visibleSnoozed =
-    input.snoozedShelfExpanded === true
+    input.snoozedShelfExpanded === true || statusTab === "snoozed"
       ? orderedSnoozed
       : orderedSnoozed.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
-  const orderedSettled = sortSettledThreadsReusingLast(settled);
+  const orderedSettled = sortSettledThreadsReusingLast(status.settled);
   const listedSettled =
     input.isListedSettled === undefined
       ? orderedSettled
       : orderedSettled.filter(input.isListedSettled);
-  const settledTotal = orderedSettled.length + (input.unloadedSettledCount ?? 0);
+  const settledTotal =
+    statusTab === "all" || statusTab === "settled"
+      ? orderedSettled.length + unloadedSettledCount
+      : 0;
   const settledLimit = input.settledLimit ?? Number.POSITIVE_INFINITY;
   const limitedSettled =
     listedSettled.length > settledLimit ? listedSettled.slice(0, settledLimit) : listedSettled;
@@ -802,15 +842,17 @@ export function buildThreadListV2Items(input: {
   const pagedSettled =
     selectedSettled === undefined ? limitedSettled : [...limitedSettled, selectedSettled];
   const visibleSettled =
-    input.settledShelfExpanded !== false
+    input.settledShelfExpanded !== false || statusTab === "settled"
       ? pagedSettled
       : pagedSettled.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
 
   const items: ThreadListV2Item[] = [];
+  // One tab lists its threads flat: the tab names the shelf, so its header is out.
+  const shelfHeaders = statusTab === "all";
   for (const thread of applyPendingThreadOrder(
-    sortPinnedThreadsByOrderKey(pinned),
+    sortPinnedThreadsByOrderKey(status.pinned),
     "pinned",
     pending,
   )) {
@@ -833,7 +875,7 @@ export function buildThreadListV2Items(input: {
       isLast: false,
     });
   }
-  const workingShelfHeaderIndex = orderedWorking.length > 0 ? items.length : null;
+  const workingShelfHeaderIndex = shelfHeaders && orderedWorking.length > 0 ? items.length : null;
   for (const thread of visibleWorking) {
     items.push({
       thread,
@@ -844,7 +886,7 @@ export function buildThreadListV2Items(input: {
       isLast: false,
     });
   }
-  const snoozedShelfHeaderIndex = orderedSnoozed.length > 0 ? items.length : null;
+  const snoozedShelfHeaderIndex = shelfHeaders && orderedSnoozed.length > 0 ? items.length : null;
   for (const thread of visibleSnoozed) {
     items.push({
       thread,
@@ -855,7 +897,7 @@ export function buildThreadListV2Items(input: {
       isLast: false,
     });
   }
-  const settledShelfHeaderIndex = settledTotal > 0 ? items.length : null;
+  const settledShelfHeaderIndex = shelfHeaders && settledTotal > 0 ? items.length : null;
   for (const thread of visibleSettled) {
     items.push({
       thread,
@@ -882,5 +924,7 @@ export function buildThreadListV2Items(input: {
     settledShelfHeaderIndex,
     nextSnoozeWakeAt,
     contentOnlyThreadKeys,
+    statusTab,
+    statusTabCounts,
   };
 }

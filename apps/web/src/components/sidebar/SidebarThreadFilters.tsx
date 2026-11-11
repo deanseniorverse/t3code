@@ -1,6 +1,11 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { ChevronDownIcon, XIcon } from "lucide-react";
 
+import {
+  SIDEBAR_STATUS_TABS,
+  type SidebarStatusTab,
+  type SidebarStatusTabCounts,
+} from "../sidebarStatusSort";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 
@@ -102,6 +107,50 @@ export function SidebarThreadFilters(props: {
           <XIcon />
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
+  all: "All",
+  input: "Input",
+  failed: "Failed",
+  done: "Done",
+  read: "Read",
+  working: "Working",
+  snoozed: "Snoozed",
+  settled: "Settled",
+};
+
+/** Fork-only: one tab per status group that has threads, each with its count. */
+export function SidebarStatusTabs(props: {
+  readonly tab: SidebarStatusTab;
+  readonly counts: SidebarStatusTabCounts;
+  readonly onChange: (tab: SidebarStatusTab) => void;
+}) {
+  if (props.counts.all === 0) return null;
+  const tabs = (["all", ...SIDEBAR_STATUS_TABS] as const).filter(
+    (tab) => tab === "all" || props.counts[tab] > 0,
+  );
+  return (
+    <div
+      role="tablist"
+      aria-label="Filter threads by status"
+      className="flex min-w-0 flex-wrap items-center gap-0.5 px-2 pb-1"
+    >
+      {tabs.map((tab) => (
+        <Button
+          key={tab}
+          role="tab"
+          size="xs"
+          variant={tab === props.tab ? "secondary" : "ghost-muted"}
+          aria-selected={tab === props.tab}
+          onClick={() => props.onChange(tab)}
+        >
+          {STATUS_TAB_LABELS[tab]}
+          <span className="tabular-nums opacity-60">{props.counts[tab]}</span>
+        </Button>
+      ))}
     </div>
   );
 }

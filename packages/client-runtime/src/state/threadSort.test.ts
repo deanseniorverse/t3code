@@ -323,7 +323,7 @@ describe("sortThreadsByStatusGroup", () => {
     },
   });
 
-  it("orders by group, each oldest first, and read threads by oldest visit", () => {
+  it("orders by group, each newest first, and read threads by latest visit", () => {
     const threads = [
       thread("read-recent", 3, 1, 50),
       thread("done-new", 2, 30),
@@ -337,13 +337,13 @@ describe("sortThreadsByStatusGroup", () => {
     expect(
       sortThreadsByStatusGroup(threads, (entry) => entry.group).map((entry) => entry.id),
     ).toEqual([
-      "input-old",
       "input-new",
+      "input-old",
       "failed",
-      "done-old",
       "done-new",
-      "read-old",
+      "done-old",
       "read-recent",
+      "read-old",
     ]);
   });
 
@@ -355,6 +355,6 @@ describe("sortThreadsByStatusGroup", () => {
         (entry) => entry.group,
         (entry) => (entry.id === "early" ? Date.parse(at(30)) : undefined),
       ).map((entry) => entry.id),
-    ).toEqual(["late", "early"]);
+    ).toEqual(["early", "late"]);
   });
 });
