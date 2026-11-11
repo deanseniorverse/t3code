@@ -101,4 +101,26 @@ describe("partitionSidebarThreads", () => {
       searchable: 4,
     });
   });
+
+  it("keeps settled threads under the pin filter, since settling clears the pin", () => {
+    const settled = {
+      ...thread("settled", null, false),
+      settledOverride: "settled" as const,
+      settledAt: idle.createdAt,
+    };
+    const partition = partitionSidebarThreads({
+      threads: [...threads, settled],
+      scopedProjectKeys: null,
+      delegatedUnderParent: new Set(),
+      serverConfigs: new Map([[idle.environmentId, {}]]) as never,
+      optimisticDrop: null,
+      workingShelfEnabled: true,
+      openSpecThreads: new Set(),
+      pinnedOnly: true,
+      statusTab: "settled",
+      clockKey: "",
+    });
+    expect(partition.settledThreads.map((entry) => entry.id)).toEqual(["settled"]);
+    expect(partition.activeThreads).toEqual([]);
+  });
 });

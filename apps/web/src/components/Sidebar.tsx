@@ -630,7 +630,16 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   } = input;
   const preciseNow = new Date().toISOString();
   const scoped = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
-  const visible = input.pinnedOnly ? scoped.filter((thread) => thread.pinnedAt != null) : scoped;
+  // Settling clears the pin, so the pin filter keeps settled threads: its Settled shelf lists them.
+  const visible = input.pinnedOnly
+    ? scoped.filter(
+        (thread) =>
+          thread.pinnedAt != null ||
+          (thread.settledOverride === "settled" &&
+            serverConfigs.has(thread.environmentId) &&
+            !effectiveSnoozed(thread, { now: preciseNow })),
+      )
+    : scoped;
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null, {
     pinsCanWork: input.pinnedOnly,
   });
