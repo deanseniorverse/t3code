@@ -111,7 +111,7 @@ export function SidebarThreadFilters(props: {
   );
 }
 
-const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
+export const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
   all: "All",
   input: "Input",
   failed: "Failed",

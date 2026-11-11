@@ -22,6 +22,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     sidebarProjectScopeKeys: [],
     legacyFavoriteThreadKeys: [],
     sidebarPinnedOnly: false,
+    sidebarStatusTab: "all",
     sidebarEnvironmentScopeId: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -131,6 +132,7 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKeys: [],
       legacyFavoriteThreadKeys: [],
       sidebarPinnedOnly: false,
+      sidebarStatusTab: "all",
       sidebarEnvironmentScopeId: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {

@@ -2,7 +2,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { makeThreadFixture } from "../test-fixtures";
-import { sortPinnedSection } from "./sidebarStatusSort";
+import { sidebarStatusTabOf, sortPinnedSection } from "./sidebarStatusSort";
 
 describe("sortPinnedSection", () => {
   const first = makeThreadFixture({ id: ThreadId.make("first-pin") });
@@ -23,5 +23,35 @@ describe("sortPinnedSection", () => {
     expect(
       sortPinnedSection(pinned, true, undefined, waitingOnInput).map((thread) => thread.id),
     ).toEqual(["second-pin", "first-pin"]);
+  });
+});
+
+describe("sidebarStatusTabOf", () => {
+  const idle = makeThreadFixture();
+  const plain = { snoozed: false, settled: false, hasOpenSpecQuestions: false };
+
+  it.each([
+    { name: "a snoozed thread", thread: idle, input: { ...plain, snoozed: true }, tab: "snoozed" },
+    { name: "a settled thread", thread: idle, input: { ...plain, settled: true }, tab: "settled" },
+    {
+      name: "a running thread",
+      thread: { ...idle, runtime: { ...idle.runtime!, status: "running" as const } },
+      input: plain,
+      tab: "working",
+    },
+    {
+      name: "a thread with an open spec question",
+      thread: idle,
+      input: { ...plain, hasOpenSpecQuestions: true },
+      tab: "input",
+    },
+    {
+      name: "a thread waiting on input",
+      thread: { ...idle, hasPendingUserInput: true },
+      input: plain,
+      tab: "input",
+    },
+  ])("files $name under $tab", ({ thread, input, tab }) => {
+    expect(sidebarStatusTabOf(thread, input)).toBe(tab);
   });
 });
