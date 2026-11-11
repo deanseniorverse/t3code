@@ -13,6 +13,7 @@ import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-searc
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { use, useEffect, useRef, useState, type ComponentProps } from "react";
+import type { ThreadStatusTab } from "@t3tools/client-runtime/state/thread-sort";
 import {
   Platform,
   ScrollView,
@@ -85,6 +86,7 @@ import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-sw
 import { useFabScroll } from "./FabScrollContext";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import { ThreadListFilters } from "./ThreadListFilters";
+import { ThreadListStatusTabs } from "../threads/ThreadListStatusTabs";
 
 interface HomeScreenProps {
   readonly projects: ReadonlyArray<EnvironmentProject>;
@@ -440,6 +442,7 @@ export function HomeScreen(props: HomeScreenProps) {
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder();
+  const [requestedStatusTab, setStatusTab] = useState<ThreadStatusTab>("all");
   const {
     layout: threadListV2Layout,
     items: threadListV2Items,
@@ -465,7 +468,11 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozedShelfExpanded,
     settledShelfExpanded,
     selectedThreadKey,
+    statusTab: requestedStatusTab,
   });
+  const statusTab = threadListV2Layout.statusTab;
+  // A tab whose last thread left returns the list to All.
+  if (statusTab !== requestedStatusTab) setStatusTab(statusTab);
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
   // props object, which is new on every render of Home's parent.
   const { onSelectThread } = props;
@@ -712,6 +719,13 @@ export function HomeScreen(props: HomeScreenProps) {
           onProjectChange={props.onProjectChange}
         />
       ) : null}
+      <ThreadListStatusTabs
+        tab={statusTab}
+        counts={threadListV2Layout.statusTabCounts}
+        onChange={setStatusTab}
+        gutter={primaryColumn ? 8 : 0}
+        inset={20}
+      />
     </>
   );
 
@@ -785,7 +799,8 @@ export function HomeScreen(props: HomeScreenProps) {
               extraData={v2ExtraData}
               ListHeaderComponent={v2ListHeader}
               ListFooterComponent={
-                settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0 ? (
+                (settledShelfExpanded || statusTab === "settled") &&
+                threadListV2Layout.hiddenSettledCount > 0 ? (
                   <ThreadListV2ShowMoreRow
                     hiddenCount={threadListV2Layout.hiddenSettledCount}
                     {...(olderSettledShelf.loading

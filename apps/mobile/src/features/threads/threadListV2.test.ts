@@ -277,6 +277,76 @@ describe("active section status order", () => {
   });
 });
 
+describe("status tabs", () => {
+  const at = (hour: number) => `2026-06-01T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  const threads = [
+    makeThread({ id: ThreadId.make("input"), title: "input", hasPendingUserInput: true }),
+    makeThread({
+      id: ThreadId.make("pinned-input"),
+      title: "pinned-input",
+      pinnedAt: at(1),
+      hasPendingApprovals: true,
+    }),
+    makeThread({ id: ThreadId.make("read"), title: "read", lastVisitedAt: at(2) }),
+    makeThread({
+      id: ThreadId.make("settled"),
+      title: "settled",
+      settledOverride: "settled",
+      settledAt: at(3),
+    }),
+  ];
+  const build = (statusTab: "all" | "input" | "failed" | "settled") => {
+    const layout = buildThreadListV2Items({
+      threads,
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+      isWorking: () => false,
+      settledShelfExpanded: false,
+      unloadedSettledCount: 2,
+      statusTab,
+    });
+    return { layout, ids: layout.items.map((item) => item.thread.id) };
+  };
+
+  it("counts every tab and keeps the shelf headers on All", () => {
+    const { layout, ids } = build("all");
+    expect(layout.statusTabCounts).toEqual({
+      all: 6,
+      input: 2,
+      failed: 0,
+      done: 0,
+      read: 1,
+      working: 0,
+      snoozed: 0,
+      settled: 3,
+    });
+    expect(ids).toEqual(["pinned-input", "input", "read"]);
+    expect(layout.settledShelfHeaderIndex).toBe(3);
+  });
+
+  it("lists one tab's threads, pinned ones included", () => {
+    const { layout, ids } = build("input");
+    expect(layout.statusTab).toBe("input");
+    expect(ids).toEqual(["pinned-input", "input"]);
+    expect(layout.settledShelfHeaderIndex).toBeNull();
+    expect(layout.hiddenSettledCount).toBe(0);
+  });
+
+  it("lists a shelf tab open and flat, whatever the shelf's own toggle says", () => {
+    const { layout, ids } = build("settled");
+    expect(ids).toEqual(["settled"]);
+    expect(layout.settledShelfHeaderIndex).toBeNull();
+    expect(layout.hiddenSettledCount).toBe(2);
+  });
+
+  it("returns to All when the chosen tab has no threads", () => {
+    const { layout, ids } = build("failed");
+    expect(layout.statusTab).toBe("all");
+    expect(ids).toEqual(["pinned-input", "input", "read"]);
+  });
+});
+
 describe("getThreadListV2OrderedSection", () => {
   it("uses each saved order and excludes settled, snoozed, and archived rows", () => {
     const threads = [

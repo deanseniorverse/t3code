@@ -55,6 +55,7 @@ export function useThreadListV2(input: {
   readonly snoozedShelfExpanded: boolean;
   readonly settledShelfExpanded: boolean;
   readonly selectedThreadKey: string | null;
+  readonly statusTab: LayoutInput["statusTab"];
 }) {
   const { threads, workingShelfEnabled } = input;
   // A thread can stop working when the threads change, or when its exit grace expires.
@@ -90,7 +91,7 @@ export function useThreadListV2(input: {
   const scopes = olderSettledScopes(input);
   const olderSettledShelf = useOlderSettledShelf({
     scopes,
-    expanded: input.settledShelfExpanded,
+    expanded: input.settledShelfExpanded || input.statusTab === "settled",
     // A search lists only matches, so the shelf would page forever; loaded pages stay.
     visibleCount: input.searchQuery.trim().length === 0 ? input.settledLimit : 0,
   });
@@ -115,6 +116,7 @@ export function useThreadListV2(input: {
     snoozedShelfExpanded: input.snoozedShelfExpanded,
     settledShelfExpanded: input.settledShelfExpanded,
     selectedThreadKey: input.selectedThreadKey,
+    statusTab: input.statusTab,
     isListedSettled: olderSettledShelf.isListed,
     unloadedSettledCount: olderSettledShelf.unloadedCount(
       threads.filter(
@@ -142,7 +144,8 @@ export function useThreadListV2(input: {
         scopedProjectKeys.has(
           scopedProjectKey(pendingTask.environmentId, pendingTask.projectId),
         )) &&
-      (searchQuery.length === 0 || pendingTask.title.toLocaleLowerCase().includes(searchQuery)),
+      (searchQuery.length === 0 || pendingTask.title.toLocaleLowerCase().includes(searchQuery)) &&
+      (layout.statusTab === "all" || searchQuery.length > 0),
   );
   const items = buildThreadListV2ListItems({
     items: layout.items,

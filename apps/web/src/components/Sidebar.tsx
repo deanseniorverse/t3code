@@ -2031,16 +2031,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (workingThreads.length > 0) {
-      items.push({ kind: "marker", marker: "working-header" });
+      if (statusTab !== "working") items.push({ kind: "marker", marker: "working-header" });
       items.push(...rowsOf(visibleWorkingThreads, "working"));
     }
     if (snoozedThreads.length > 0) {
-      items.push({ kind: "marker", marker: "snoozed-header" });
+      if (statusTab !== "snoozed") items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
     }
     // Any other status tab lists one group, so the Settled shelf and its drop target are out.
     if (statusTab !== "all" && statusTab !== "settled") return items;
-    items.push({ kind: "marker", marker: "settled-header" });
+    // A shelf's own tab lists it flat: the tab already names it, so its header is out.
+    if (statusTab !== "settled") items.push({ kind: "marker", marker: "settled-header" });
     const settledRows = rowsOf(renderedSettledThreads, "settled");
     items.push({ kind: "marker", marker: "settled-placeholder" });
     items.push(...settledRows);
@@ -3394,9 +3395,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             variant={rowVariant}
                             navigationParent={
                               folderRow ??
+                              (statusTab === "all" &&
                               (section === "working" ||
-                              section === "snoozed" ||
-                              section === "settled"
+                                section === "snoozed" ||
+                                section === "settled")
                                 ? `shelf:${section}`
                                 : undefined)
                             }
@@ -3649,7 +3651,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           role="treeitem"
                           tabIndex={-1}
                           data-sidebar-row="settled:more"
-                          data-sidebar-parent="shelf:settled"
+                          data-sidebar-parent={statusTab === "all" ? "shelf:settled" : undefined}
                           disabled={olderSettledShelf.loading}
                           onClick={() => {
                             olderSettledShelf.retry();
