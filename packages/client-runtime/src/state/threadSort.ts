@@ -129,7 +129,7 @@ type StatusGroupSortInput = Pick<
 >;
 
 /**
- * Fork-only: orders a list by status group (lowest first), each group oldest first.
+ * Fork-only: orders a list by status group (lowest first), each group newest first.
  * The last group (3, already read) runs by when each thread was last opened.
  */
 export function sortThreadsByStatusGroup<T extends StatusGroupSortInput>(
@@ -159,7 +159,7 @@ export function sortThreadsByStatusGroup<T extends StatusGroupSortInput>(
     const b = keys.get(right)!;
     return (
       a.group - b.group ||
-      a.at - b.at ||
+      b.at - a.at ||
       left.id.localeCompare(right.id) ||
       left.environmentId.localeCompare(right.environmentId)
     );

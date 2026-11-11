@@ -38,6 +38,7 @@ describe("partitionSidebarThreads", () => {
       workingShelfEnabled: true,
       openSpecThreads: new Set(),
       pinnedOnly: expected.pinnedOnly,
+      statusTab: "all",
       clockKey: "",
     });
     const ids = (list: readonly { readonly id: string }[]) => list.map((entry) => entry.id);
@@ -46,5 +47,51 @@ describe("partitionSidebarThreads", () => {
       active: ids(partition.activeThreads),
       working: ids(partition.workingThreads),
     }).toEqual({ pinned: expected.pinned, active: expected.active, working: expected.working });
+  });
+
+  it.each([
+    {
+      statusTab: "input" as const,
+      tab: "input",
+      pinned: ["pinned-idle"],
+      active: [],
+      working: [],
+    },
+    {
+      statusTab: "failed" as const,
+      tab: "all",
+      pinned: ["pinned-working", "pinned-idle"],
+      active: ["unpinned-idle"],
+      working: ["unpinned-working"],
+    },
+  ])("narrows to the $statusTab tab, or to all when that group is empty", (expected) => {
+    const partition = partitionSidebarThreads({
+      threads,
+      scopedProjectKeys: null,
+      delegatedUnderParent: new Set(),
+      serverConfigs: new Map(),
+      optimisticDrop: null,
+      workingShelfEnabled: true,
+      openSpecThreads: new Set(["environment-test:pinned-idle"]),
+      pinnedOnly: false,
+      statusTab: expected.statusTab,
+      clockKey: "",
+    });
+    const ids = (list: readonly { readonly id: string }[]) => list.map((entry) => entry.id);
+    expect({
+      tab: partition.statusTab,
+      counts: partition.statusTabCounts,
+      pinned: ids(partition.pinnedThreads),
+      active: ids(partition.activeThreads),
+      working: ids(partition.workingThreads),
+      searchable: partition.searchableThreads.length,
+    }).toEqual({
+      tab: expected.tab,
+      counts: { all: 3, input: 1, failed: 0, done: 0, read: 1 },
+      pinned: expected.pinned,
+      active: expected.active,
+      working: expected.working,
+      searchable: 4,
+    });
   });
 });

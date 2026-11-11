@@ -216,7 +216,7 @@ describe("search lists ranked matches", () => {
 });
 
 describe("active section status order", () => {
-  it("lists input, failed, unread done, then read threads by oldest visit", () => {
+  it("lists input, failed, unread done, then read threads, each newest first", () => {
     const at = (hour: number) => `2026-06-01T${String(hour).padStart(2, "0")}:00:00.000Z`;
     const failed = (lastErrorClass?: "usage_limit") => ({
       status: "failed" as const,
@@ -265,14 +265,14 @@ describe("active section status order", () => {
     });
 
     expect(layout.items.map((item) => item.thread.id)).toEqual([
-      "approval-old",
       "input-new",
-      "failed",
+      "approval-old",
       "limited",
-      "done-old",
+      "failed",
       "done-new",
-      "read-old",
+      "done-old",
       "read-recent",
+      "read-old",
     ]);
   });
 });
@@ -1661,8 +1661,8 @@ describe("Working section beta", () => {
     expect(ids(layout)).toEqual([
       "pinned-working",
       "asks-approval",
-      "finished-early",
       "finished-late",
+      "finished-early",
     ]);
     expect(layout.workingCount).toBe(1);
     expect(layout.workingShelfHeaderIndex).toBe(4);
@@ -1705,7 +1705,7 @@ describe("Working section beta", () => {
       inboxReturnAt: (thread) =>
         thread.id === "finished-early" ? Date.parse("2026-06-01T04:00:00.000Z") : undefined,
     });
-    expect(ids(layout).slice(1)).toEqual(["asks-approval", "finished-late", "finished-early"]);
+    expect(ids(layout).slice(1)).toEqual(["asks-approval", "finished-early", "finished-late"]);
   });
 
   it("places the shelf after queued tasks and before snoozed and settled threads", () => {
