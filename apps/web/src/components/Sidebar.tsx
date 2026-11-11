@@ -3572,7 +3572,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="working-shelf-header"
                                 marker="working-header"
-                                className="mt-auto"
+                                className={cn(statusTab === "all" && "mt-auto")}
                                 label="Working"
                                 count={workingThreads.length}
                                 toggle={{
@@ -3587,7 +3587,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className={cn(workingThreads.length === 0 && "mt-auto")}
+                                className={cn(
+                                  statusTab === "all" && workingThreads.length === 0 && "mt-auto",
+                                )}
                                 label="Snoozed"
                                 count={snoozedThreads.length}
                                 toggle={{
@@ -3603,7 +3605,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="settled-shelf-header"
                                 marker="settled-header"
                                 className={cn(
-                                  workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
+                                  statusTab === "all" &&
+                                    workingThreads.length + snoozedThreads.length === 0 &&
+                                    "mt-auto",
                                 )}
                                 label="Settled"
                                 count={settledCount}
