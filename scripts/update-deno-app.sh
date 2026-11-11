@@ -110,10 +110,26 @@ open_app() {
   for attempt in 1 2 3 4 5 6; do
     open "$APP_PATH" || true
     sleep 5
-    is_running "$APP_NAME" && return 0
+    if is_running "$APP_NAME"; then
+      # A second open asks the running app to show its window in front.
+      sleep 2
+      open "$APP_PATH" || true
+      return 0
+    fi
     echo "$APP_NAME is not running after open, attempt $attempt"
   done
   echo "could not open $APP_NAME; open it by hand"
+  return 0
+}
+
+# A dialog with a Reopen button, for when the app did not come back by itself.
+# Called after DONE is logged, so the foreground does not wait on it. Closes itself after 2 minutes.
+offer_reopen() {
+  local answer
+  answer="$(osascript -e "display dialog \"$1\" & return & return & \"If it did not come back, click Reopen.\" with title \"$APP_NAME\" buttons {\"Dismiss\", \"Reopen\"} default button \"Reopen\" giving up after 120" 2>/dev/null || true)"
+  case "$answer" in
+    *"button returned:Reopen"*) open "$APP_PATH" || true ;;
+  esac
   return 0
 }
 
@@ -146,6 +162,7 @@ install_staged() {
   fi
   notify "Update installed, version $(app_version "$APP_PATH")"
   echo "DONE"
+  offer_reopen "Update installed, version $(app_version "$APP_PATH")."
 }
 
 restart_app() {
@@ -156,6 +173,7 @@ restart_app() {
   sleep 1
   open_app
   echo "DONE"
+  offer_reopen "$APP_NAME was restarted."
 }
 
 # Double fork: the work leaves the app's process tree, so quitting the app cannot stop it.
