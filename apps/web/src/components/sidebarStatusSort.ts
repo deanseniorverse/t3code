@@ -53,6 +53,27 @@ export function sortThreadsByStatus<T extends StatusSortThread>(
   );
 }
 
+/**
+ * The status tab the sidebar files one thread under, for the chat header's status chip.
+ * It reads the thread alone, so a thread in its Working exit grace already shows its next status.
+ */
+export function sidebarStatusTabOf(
+  thread: StatusSortThread,
+  input: {
+    readonly snoozed: boolean;
+    readonly settled: boolean;
+    readonly hasOpenSpecQuestions: boolean;
+  },
+): Exclude<SidebarStatusTab, "all"> {
+  if (input.snoozed) return "snoozed";
+  if (input.settled) return "settled";
+  return statusOf(thread, input.hasOpenSpecQuestions) === "working"
+    ? "working"
+    : (["input", "failed", "done", "read"] as const)[
+        statusGroup(thread, input.hasOpenSpecQuestions)
+      ]!;
+}
+
 /** The status tabs over the sidebar's sections; see `applyThreadStatusTab`. */
 export function applySidebarStatusTab<T extends StatusSortThread>(
   sections: ThreadStatusSections<T>,
@@ -60,10 +81,12 @@ export function applySidebarStatusTab<T extends StatusSortThread>(
   hasOpenSpecQuestions: (thread: T) => boolean = () => false,
 ) {
   return applyThreadStatusTab(sections, requested, (thread) => {
-    const hasOpen = hasOpenSpecQuestions(thread);
-    return statusOf(thread, hasOpen) === "working"
-      ? "working"
-      : (["input", "failed", "done", "read"] as const)[statusGroup(thread, hasOpen)]!;
+    const tab = sidebarStatusTabOf(thread, {
+      snoozed: false,
+      settled: false,
+      hasOpenSpecQuestions: hasOpenSpecQuestions(thread),
+    });
+    return tab === "snoozed" || tab === "settled" ? "read" : tab;
   });
 }
 

@@ -2,6 +2,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
+import type { ThreadStatusTab } from "@t3tools/client-runtime/state/thread-sort";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
@@ -44,6 +45,8 @@ export interface UiProjectState {
   sidebarProjectScopeKeys: string[];
   legacyFavoriteThreadKeys: string[];
   sidebarPinnedOnly: boolean;
+  /** Fork-only: the sidebar's status tab. Not saved: every app start is on "all". */
+  sidebarStatusTab: ThreadStatusTab;
   sidebarEnvironmentScopeId: string | null;
 }
 
@@ -69,6 +72,7 @@ const initialState: UiState = {
   sidebarProjectScopeKeys: [],
   legacyFavoriteThreadKeys: [],
   sidebarPinnedOnly: false,
+  sidebarStatusTab: "all",
   sidebarEnvironmentScopeId: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
@@ -164,6 +168,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     legacyFavoriteThreadKeys: sanitizeStringArray(parsed.favoriteThreadKeys),
     sidebarPinnedOnly: (parsed.sidebarPinnedOnly ?? parsed.sidebarFavoritesOnly) === true,
+    sidebarStatusTab: "all",
     sidebarProjectScopeKeys: sanitizeStringArray(
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
     ),
@@ -462,6 +467,7 @@ interface UiStateStore extends UiState {
   setSidebarEnvironmentScopeId: (environmentId: string | null) => void;
   dropLegacyFavoriteThreadKeys: (threadKeys: readonly string[]) => void;
   setSidebarPinnedOnly: (pinnedOnly: boolean) => void;
+  setSidebarStatusTab: (tab: ThreadStatusTab) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -490,6 +496,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
       ),
     })),
   setSidebarPinnedOnly: (pinnedOnly) => set({ sidebarPinnedOnly: pinnedOnly }),
+  setSidebarStatusTab: (tab) => set({ sidebarStatusTab: tab }),
   setSidebarEnvironmentScopeId: (environmentId) =>
     set((state) => setSidebarEnvironmentScopeId(state, environmentId)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),

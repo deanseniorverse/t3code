@@ -471,7 +471,9 @@ function useSidebarThreads(input: {
 
   const openSpecThreads = useOpenSpecThreads(threads, threadShellKey);
   const pinnedOnly = useUiStateStore((store) => store.sidebarPinnedOnly);
-  const [requestedStatusTab, setStatusTab] = useState<SidebarStatusTab>("all");
+  // In the store so the chat header's status chip can choose a tab.
+  const requestedStatusTab = useUiStateStore((store) => store.sidebarStatusTab);
+  const setStatusTab = useUiStateStore((store) => store.setSidebarStatusTab);
   const partition = partitionSidebarThreads({
     threads,
     openSpecThreads,
@@ -509,9 +511,11 @@ function useSidebarThreads(input: {
   const settledCount = statusTab === "all" || statusTab === "settled" ? statusTabCounts.settled : 0;
   // The chosen group emptied, so the list is back on All; a later refill must not re-filter it.
   const settledTabEmptied = statusTab === "settled" && statusTabCounts.settled === 0;
-  if (statusTab !== requestedStatusTab || settledTabEmptied) {
-    setStatusTab(settledTabEmptied ? "all" : statusTab);
-  }
+  const resolvedStatusTab = settledTabEmptied ? "all" : statusTab;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the tab lives in the UI store for the chat header's chip, and a store write cannot happen during render
+  useEffect(() => {
+    if (resolvedStatusTab !== requestedStatusTab) setStatusTab(resolvedStatusTab);
+  }, [resolvedStatusTab, requestedStatusTab, setStatusTab]);
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
