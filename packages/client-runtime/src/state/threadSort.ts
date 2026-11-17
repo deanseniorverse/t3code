@@ -394,7 +394,8 @@ export const THREAD_STATUS_TABS = [
   "snoozed",
   "settled",
 ] as const;
-export type ThreadStatusTab = "all" | (typeof THREAD_STATUS_TABS)[number];
+/** "open" lists every thread that is not settled. */
+export type ThreadStatusTab = "all" | "open" | (typeof THREAD_STATUS_TABS)[number];
 export type ThreadStatusTabCounts = Record<ThreadStatusTab, number>;
 /** The tabs a main-list or Working-shelf thread files under. */
 export type ThreadListTab = "input" | "failed" | "done" | "read" | "working" | "waiting";
@@ -423,6 +424,7 @@ export function applyThreadStatusTab<T>(
 } {
   const counts: ThreadStatusTabCounts = {
     all: 0,
+    open: 0,
     input: 0,
     failed: 0,
     done: 0,
@@ -445,8 +447,10 @@ export function applyThreadStatusTab<T>(
     }
   }
   for (const tab of THREAD_STATUS_TABS) counts.all += counts[tab];
+  counts.open = counts.all - counts.settled;
   const tab = requested !== "settled" && counts[requested] === 0 ? "all" : requested;
   if (tab === "all") return { ...sections, tab, counts };
+  if (tab === "open") return { ...sections, settled: [], tab, counts };
   const listed = (list: readonly T[]) => list.filter((thread) => tabs.get(thread) === tab);
   return {
     tab,

@@ -91,6 +91,7 @@ describe("partitionSidebarThreads", () => {
       tab: expected.tab,
       counts: {
         all: 4,
+        open: 4,
         input: 1,
         failed: 0,
         done: 0,

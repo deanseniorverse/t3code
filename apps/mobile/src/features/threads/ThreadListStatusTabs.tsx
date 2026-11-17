@@ -9,6 +9,7 @@ import { Chip } from "../../components/ui/Chip";
 
 const LABELS: Record<ThreadStatusTab, string> = {
   all: "All",
+  open: "Open",
   input: "Input",
   failed: "Failed",
   done: "Done",
@@ -30,7 +31,10 @@ export function ThreadListStatusTabs(props: {
 }) {
   const { counts } = props;
   if (counts === null || counts.all === 0) return null;
-  const tabs: ThreadStatusTab[] = ["all", ...THREAD_STATUS_TABS.filter((tab) => counts[tab] > 0)];
+  const tabs: ThreadStatusTab[] = [
+    "all",
+    ...(["open", ...THREAD_STATUS_TABS] as const).filter((tab) => counts[tab] > 0),
+  ];
   return (
     <ScrollView
       horizontal
@@ -43,8 +47,10 @@ export function ThreadListStatusTabs(props: {
         <Chip
           key={tab}
           size="small"
-          label={`${LABELS[tab]} ${counts[tab]}`}
-          accessibilityLabel={`${LABELS[tab]}, ${counts[tab]} threads`}
+          label={tab === "all" ? LABELS[tab] : `${LABELS[tab]} ${counts[tab]}`}
+          accessibilityLabel={
+            tab === "all" ? LABELS[tab] : `${LABELS[tab]}, ${counts[tab]} threads`
+          }
           selected={tab === props.tab}
           onPress={() => props.onChange(tab)}
         />

@@ -113,6 +113,7 @@ export function SidebarThreadFilters(props: {
 
 export const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
   all: "All",
+  open: "Open",
   input: "Input",
   failed: "Failed",
   done: "Done",
@@ -123,14 +124,14 @@ export const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
   settled: "Settled",
 };
 
-/** Fork-only: one tab per status group that has threads, each with its count. */
+/** Fork-only: All, then one tab per status group that has threads, each but All with its count. */
 export function SidebarStatusTabs(props: {
   readonly tab: SidebarStatusTab;
   readonly counts: SidebarStatusTabCounts;
   readonly onChange: (tab: SidebarStatusTab) => void;
 }) {
   if (props.counts.all === 0) return null;
-  const tabs = (["all", ...SIDEBAR_STATUS_TABS] as const).filter(
+  const tabs = (["all", "open", ...SIDEBAR_STATUS_TABS] as const).filter(
     (tab) => tab === "all" || props.counts[tab] > 0,
   );
   return (
@@ -149,7 +150,9 @@ export function SidebarStatusTabs(props: {
           onClick={() => props.onChange(tab)}
         >
           {STATUS_TAB_LABELS[tab]}
-          <span className="tabular-nums opacity-60">{props.counts[tab]}</span>
+          {tab === "all" ? null : (
+            <span className="tabular-nums opacity-60">{props.counts[tab]}</span>
+          )}
         </Button>
       ))}
     </div>
