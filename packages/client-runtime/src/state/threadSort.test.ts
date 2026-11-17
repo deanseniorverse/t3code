@@ -9,7 +9,7 @@ import {
   sortActiveThreadsByOrderKey,
   sortSettledThreads,
   sortThreads,
-  sortThreadsByStatusGroup,
+  sortThreadsByStatusTime,
   type SettledThreadTimestampInput,
   type ThreadSortInput,
 } from "./threadSort.ts";
@@ -304,57 +304,50 @@ describe("sortActiveThreadsByOrderKey", () => {
   });
 });
 
-describe("sortThreadsByStatusGroup", () => {
+describe("sortThreadsByStatusTime", () => {
   const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, "0")}:00.000Z`;
-  const thread = (id: string, group: number, minute: number, visitedMinute = 0) => ({
+  const thread = (
+    id: string,
+    tab: "input" | "failed" | "done" | "read",
+    run: { readonly started: number; readonly finished: number | null } | null,
+    messageMinute: number | null = null,
+  ) => ({
     id: ThreadId.make(id),
-    group,
+    tab,
     environmentId: EnvironmentId.make("env-a"),
-    createdAt: at(0),
+    createdAt: at(1),
     unsettledAt: null,
-    lastVisitedAt: at(visitedMinute),
-    latestRun: {
-      runId: RunId.make(`run-${id}`),
-      status: "completed" as const,
-      requestedAt: at(minute),
-      startedAt: at(minute),
-      completedAt: at(minute),
-      assistantMessageId: null,
-    },
+    latestUserMessageAt: messageMinute === null ? null : at(messageMinute),
+    latestRun:
+      run === null
+        ? null
+        : {
+            runId: RunId.make(`run-${id}`),
+            status: "completed" as const,
+            requestedAt: at(run.started),
+            startedAt: at(run.started),
+            completedAt: run.finished === null ? null : at(run.finished),
+            assistantMessageId: null,
+          },
   });
 
-  it("orders by group, each newest first, and read threads by latest visit", () => {
+  it("lists every status newest first: finished, else started, else created; read by latest activity", () => {
     const threads = [
-      thread("read-recent", 3, 1, 50),
-      thread("done-new", 2, 30),
-      thread("failed", 1, 20),
-      thread("read-old", 3, 1, 40),
-      thread("input-new", 0, 15),
-      thread("done-old", 2, 10),
-      thread("input-old", 0, 5),
+      thread("done-finished-30", "done", { started: 5, finished: 30 }),
+      thread("input-started-20", "input", { started: 20, finished: null }),
+      thread("failed-created-1", "failed", null),
+      thread("read-message-40", "read", { started: 2, finished: 3 }, 40),
+      thread("input-finished-10", "input", { started: 8, finished: 10 }),
     ];
 
-    expect(
-      sortThreadsByStatusGroup(threads, (entry) => entry.group).map((entry) => entry.id),
-    ).toEqual([
-      "input-new",
-      "input-old",
-      "failed",
-      "done-new",
-      "done-old",
-      "read-recent",
-      "read-old",
-    ]);
-  });
-
-  it("orders a group by the latest return this device observed", () => {
-    const threads = [thread("early", 2, 10), thread("late", 2, 20)];
-    expect(
-      sortThreadsByStatusGroup(
-        threads,
-        (entry) => entry.group,
-        (entry) => (entry.id === "early" ? Date.parse(at(30)) : undefined),
-      ).map((entry) => entry.id),
-    ).toEqual(["early", "late"]);
+    expect(sortThreadsByStatusTime(threads, (entry) => entry.tab).map((entry) => entry.id)).toEqual(
+      [
+        "read-message-40",
+        "done-finished-30",
+        "input-started-20",
+        "input-finished-10",
+        "failed-created-1",
+      ],
+    );
   });
 });

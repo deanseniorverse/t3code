@@ -8,6 +8,7 @@ type WorkingThreadInput = Pick<
   | "hasActionableProposedPlan"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
+  | "hasPendingSignIn"
   | "pendingSubagentRequest"
   | "interactionMode"
   | "latestRun"
@@ -15,9 +16,25 @@ type WorkingThreadInput = Pick<
 >;
 
 export function isThreadWorking(thread: WorkingThreadInput): boolean {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
+  if (thread.hasPendingApprovals || thread.hasPendingUserInput || thread.hasPendingSignIn) {
+    return false;
+  }
   if (thread.pendingSubagentRequest != null) return false;
   if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
+  return !threadHasPlanReady(thread);
+}
+
+/** A plan-mode thread whose finished plan waits for the user to implement or refine it. */
+export function threadHasPlanReady(
+  thread: Pick<
+    EnvironmentThreadShell,
+    | "hasActionableProposedPlan"
+    | "hasPendingUserInput"
+    | "interactionMode"
+    | "latestRun"
+    | "runtime"
+  >,
+): boolean {
   const run = thread.latestRun;
   const runSettled =
     run !== null &&
@@ -27,7 +44,12 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
     run.status !== "running" &&
     run.status !== "waiting" &&
     thread.runtime?.activeRunId !== run.runId;
-  return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
+  return (
+    !thread.hasPendingUserInput &&
+    thread.interactionMode === "plan" &&
+    thread.hasActionableProposedPlan &&
+    runSettled
+  );
 }
 
 type InboxThreadInput = Pick<
@@ -166,11 +188,7 @@ export function createInboxReturnTracker() {
       };
     },
     getSnapshot: () => version,
-    observe(
-      threads: readonly TrackedInboxThread[] | null,
-      // Fork-only: the web pin filter shelves working pins, so they get the exit grace too.
-      options?: { readonly pinsCanWork?: boolean },
-    ): {
+    observe(threads: readonly TrackedInboxThread[] | null): {
       readonly isWorking: (thread: WorkingThreadInput & ThreadKeyInput) => boolean;
       readonly returnedAt: (thread: ThreadKeyInput) => number | undefined;
     } {
@@ -202,6 +220,7 @@ export function createInboxReturnTracker() {
         const actionable =
           thread.hasPendingApprovals ||
           thread.hasPendingUserInput ||
+          thread.hasPendingSignIn ||
           thread.pendingSubagentRequest != null ||
           (thread.pendingGuestMessageCount ?? 0) > 0 ||
           (thread.interactionMode === "plan" && thread.hasActionableProposedPlan) ||
@@ -211,7 +230,6 @@ export function createInboxReturnTracker() {
         const excluded =
           thread.archivedAt != null ||
           thread.deletedAt != null ||
-          (thread.pinnedAt != null && options?.pinsCanWork !== true) ||
           thread.settledOverride === "settled" ||
           effectiveSnoozed(thread, { now: observedAt });
         const actual = isThreadWorking(thread);

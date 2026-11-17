@@ -1,12 +1,13 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
+import { threadHasPlanReady } from "@t3tools/client-runtime/state/thread-inbox";
 import {
   applyThreadStatusTab,
-  sortPinnedThreadsByOrderKey,
-  sortThreadsByStatusGroup,
+  sortThreadsByStatusTime,
   THREAD_STATUS_TABS,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type {
+  ThreadListTab,
   ThreadStatusSections,
   ThreadStatusTab,
   ThreadStatusTabCounts,
@@ -16,9 +17,16 @@ import { hasUnseenCompletion, resolveSidebarThreadStatus } from "./Sidebar.logic
 
 type StatusSortThread = Parameters<typeof resolveSidebarThreadStatus>[0] &
   Parameters<typeof hasUnseenCompletion>[0] &
+  Parameters<typeof threadHasPlanReady>[0] &
   Pick<
     EnvironmentThreadShell,
-    "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun" | "lastVisitedAt"
+    | "id"
+    | "environmentId"
+    | "createdAt"
+    | "unsettledAt"
+    | "latestRun"
+    | "latestUserMessageAt"
+    | "hasPendingSignIn"
   >;
 
 export const SIDEBAR_STATUS_TABS = THREAD_STATUS_TABS;
@@ -33,23 +41,28 @@ function statusOf(thread: StatusSortThread, hasOpenSpecQuestions: boolean) {
   );
 }
 
-function statusGroup(thread: StatusSortThread, hasOpenSpecQuestions: boolean) {
+/** The tab a main-list thread files under; on the Working shelf (`shelf`) only Working or Waiting. */
+function listTabOf(
+  thread: StatusSortThread,
+  hasOpenSpecQuestions: boolean,
+  shelf = false,
+): ThreadListTab {
   const status = statusOf(thread, hasOpenSpecQuestions);
-  if (status === "input" || status === "approval" || status === "request") return 0;
-  if (status === "failed" || status === "limited") return 1;
-  if (status === "ready" && hasUnseenCompletion(thread)) return 2;
-  return 3;
+  if (status === "input" || status === "approval" || status === "request") return "input";
+  if (thread.hasPendingSignIn === true || threadHasPlanReady(thread)) return "input";
+  if (status === "waiting") return "waiting";
+  if (shelf || status === "working") return "working";
+  if (status === "failed" || status === "limited") return "failed";
+  if (status === "ready" && hasUnseenCompletion(thread)) return "done";
+  return "read";
 }
 
 export function sortThreadsByStatus<T extends StatusSortThread>(
   threads: readonly T[],
-  observedReturnAt?: (thread: T) => number | undefined,
   hasOpenSpecQuestions: (thread: T) => boolean = () => false,
 ): T[] {
-  return sortThreadsByStatusGroup(
-    threads,
-    (thread) => statusGroup(thread, hasOpenSpecQuestions(thread)),
-    observedReturnAt,
+  return sortThreadsByStatusTime(threads, (thread) =>
+    listTabOf(thread, hasOpenSpecQuestions(thread)),
   );
 }
 
@@ -67,11 +80,7 @@ export function sidebarStatusTabOf(
 ): Exclude<SidebarStatusTab, "all"> {
   if (input.snoozed) return "snoozed";
   if (input.settled) return "settled";
-  return statusOf(thread, input.hasOpenSpecQuestions) === "working"
-    ? "working"
-    : (["input", "failed", "done", "read"] as const)[
-        statusGroup(thread, input.hasOpenSpecQuestions)
-      ]!;
+  return listTabOf(thread, input.hasOpenSpecQuestions);
 }
 
 /** The status tabs over the sidebar's sections; see `applyThreadStatusTab`. */
@@ -80,26 +89,7 @@ export function applySidebarStatusTab<T extends StatusSortThread>(
   requested: SidebarStatusTab,
   hasOpenSpecQuestions: (thread: T) => boolean = () => false,
 ) {
-  return applyThreadStatusTab(sections, requested, (thread) => {
-    const tab = sidebarStatusTabOf(thread, {
-      snoozed: false,
-      settled: false,
-      hasOpenSpecQuestions: hasOpenSpecQuestions(thread),
-    });
-    return tab === "snoozed" || tab === "settled" ? "read" : tab;
-  });
-}
-
-/** The pin filter lists pinned threads by status like the main list; otherwise by dragged order. */
-export function sortPinnedSection<
-  T extends StatusSortThread & { readonly pinOrderKey?: string | null },
->(
-  threads: readonly T[],
-  pinnedOnly: boolean,
-  observedReturnAt?: (thread: T) => number | undefined,
-  hasOpenSpecQuestions?: (thread: T) => boolean,
-): T[] {
-  return pinnedOnly
-    ? sortThreadsByStatus(threads, observedReturnAt, hasOpenSpecQuestions)
-    : sortPinnedThreadsByOrderKey(threads);
+  return applyThreadStatusTab(sections, requested, (thread, shelf) =>
+    listTabOf(thread, hasOpenSpecQuestions(thread), shelf),
+  );
 }

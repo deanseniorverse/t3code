@@ -142,16 +142,12 @@ describe("createInboxReturnTracker", () => {
     },
   );
 
-  it.each([
-    { pinsCanWork: false, held: false },
-    { pinsCanWork: true, held: true },
-  ])("holds a pin that stops working only when pins can work: $pinsCanWork", (expected) => {
+  it("holds a pin that stops working, like any thread", () => {
     const tracker = createInboxReturnTracker();
     const pinned = { pinnedAt: "2026-06-01T00:00:01Z" };
-    const options = { pinsCanWork: expected.pinsCanWork };
-    tracker.observe([{ ...thread("a", true), ...pinned }], options);
-    tracker.observe([{ ...thread("a", false), ...pinned }], options);
-    expect(tracker.isWorking(thread("a", false))).toBe(expected.held);
+    tracker.observe([{ ...thread("a", true), ...pinned }]);
+    tracker.observe([{ ...thread("a", false), ...pinned }]);
+    expect(tracker.isWorking(thread("a", false))).toBe(true);
   });
 
   it("grants grace after a retained expired snooze", () => {

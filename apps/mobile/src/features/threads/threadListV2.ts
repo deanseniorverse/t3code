@@ -21,6 +21,7 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
   sortWorkingThreadsBySend,
+  threadHasPlanReady,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
   applyThreadStatusTab,
@@ -28,9 +29,10 @@ import {
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
-  sortThreadsByStatusGroup,
+  sortThreadsByStatusTime,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type {
+  ThreadListTab,
   ThreadStatusTab,
   ThreadStatusTabCounts,
 } from "@t3tools/client-runtime/state/thread-sort";
@@ -248,19 +250,27 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function threadListV2StatusGroup(thread: EnvironmentThreadShell, hasOpenSpecQuestions: boolean) {
+/** The tab a thread files under; on the Working shelf (`shelf`) only Working or Waiting. */
+function threadListV2Tab(
+  thread: EnvironmentThreadShell,
+  hasOpenSpecQuestions: boolean,
+  shelf = false,
+): ThreadListTab {
   const status = statusWithOpenSpecQuestions(
     resolveThreadListV2Status(thread),
     thread,
     hasOpenSpecQuestions,
   );
-  if (status === "input" || status === "approval" || status === "request") return 0;
-  if (status === "failed" || status === "limited") return 1;
-  if (status === "ready" && threadHasUnseenCompletion(thread)) return 2;
-  return 3;
+  if (status === "input" || status === "approval" || status === "request") return "input";
+  if (thread.hasPendingSignIn === true || threadHasPlanReady(thread)) return "input";
+  if (status === "waiting") return "waiting";
+  if (shelf || status === "working") return "working";
+  if (status === "failed" || status === "limited") return "failed";
+  if (status === "ready" && threadHasUnseenCompletion(thread)) return "done";
+  return "read";
 }
 
-/** The main list as a to-do list: needs input, failed, unread Done, then read threads. */
+/** The main list newest first across every status; see `sortThreadsByStatusTime`. */
 const EMPTY_SPEC_THREAD_KEYS: ReadonlySet<string> = new Set();
 
 export function threadSpecListKey(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) {
@@ -269,13 +279,10 @@ export function threadSpecListKey(thread: Pick<EnvironmentThreadShell, "environm
 
 export function sortThreadsByListV2Status(
   threads: readonly EnvironmentThreadShell[],
-  observedReturnAt?: (thread: EnvironmentThreadShell) => number | undefined,
   hasOpenSpecQuestions: (thread: EnvironmentThreadShell) => boolean = () => false,
 ): EnvironmentThreadShell[] {
-  return sortThreadsByStatusGroup(
-    threads,
-    (thread) => threadListV2StatusGroup(thread, hasOpenSpecQuestions(thread)),
-    observedReturnAt,
+  return sortThreadsByStatusTime(threads, (thread) =>
+    threadListV2Tab(thread, hasOpenSpecQuestions(thread)),
   );
 }
 
@@ -637,7 +644,6 @@ export function buildThreadListV2Items(input: {
   readonly workingShelfEnabled?: boolean;
   readonly workingShelfExpanded?: boolean;
   readonly isWorking?: (thread: EnvironmentThreadShell) => boolean;
-  readonly inboxReturnAt?: (thread: EnvironmentThreadShell) => number | undefined;
   readonly openSpecThreadKeys?: ReadonlySet<string>;
   readonly snoozedShelfExpanded?: boolean;
   readonly settledShelfExpanded?: boolean;
@@ -784,12 +790,12 @@ export function buildThreadListV2Items(input: {
     input.statusTab === "settled" && settled.length + unloadedSettledCount === 0
       ? "all"
       : (input.statusTab ?? "all"),
-    (thread) =>
-      (input.isWorking ?? isThreadWorking)(thread)
-        ? "working"
-        : (["input", "failed", "done", "read"] as const)[
-            threadListV2StatusGroup(thread, hasOpenSpecQuestions(thread))
-          ]!,
+    (thread, shelf) =>
+      threadListV2Tab(
+        thread,
+        hasOpenSpecQuestions(thread),
+        shelf || (input.isWorking ?? isThreadWorking)(thread),
+      ),
   );
   const statusTab = status.tab;
   const statusTabCounts = {
@@ -797,11 +803,7 @@ export function buildThreadListV2Items(input: {
     all: status.counts.all + unloadedSettledCount,
     settled: status.counts.settled + unloadedSettledCount,
   };
-  const orderedActive = sortThreadsByListV2Status(
-    status.active,
-    input.inboxReturnAt,
-    hasOpenSpecQuestions,
-  );
+  const orderedActive = sortThreadsByListV2Status(status.active, hasOpenSpecQuestions);
   const orderedWorking = sortWorkingThreadsBySend(status.working);
   const orderedSnoozed = [...status.snoozed].sort(
     (left, right) =>
@@ -809,7 +811,7 @@ export function buildThreadListV2Items(input: {
   );
   const selectedThreadKey = input.selectedThreadKey ?? null;
   const visibleWorking =
-    input.workingShelfExpanded === true || statusTab === "working"
+    input.workingShelfExpanded === true || statusTab === "working" || statusTab === "waiting"
       ? orderedWorking
       : orderedWorking.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,

@@ -14,6 +14,7 @@ const LABELS: Record<ThreadStatusTab, string> = {
   done: "Done",
   read: "Read",
   working: "Working",
+  waiting: "Waiting",
   snoozed: "Snoozed",
   settled: "Settled",
 };

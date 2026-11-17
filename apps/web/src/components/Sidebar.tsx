@@ -205,7 +205,6 @@ import { useOpenSpecThreads } from "../specQuestionsState";
 import {
   applySidebarStatusTab,
   type SidebarStatusTab,
-  sortPinnedSection,
   sortThreadsByStatus,
 } from "./sidebarStatusSort";
 import {
@@ -390,7 +389,6 @@ function resolveDraggedOrders(input: {
     activeOrder: workingShelfEnabled
       ? sortThreadsByStatus(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
           (candidate) => input.openSpecThreads.has(threadShellKey(candidate)),
         ).map(threadShellKey)
       : undefined,
@@ -487,13 +485,13 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const { activeThreads, workingThreads, snoozedThreads, settledThreads } = partition;
   const statusTab = partition.statusTab;
   // A chosen shelf tab lists its shelf open, whatever the shelf's own toggle says.
   const settledExpanded = settledShelfExpanded || statusTab === "settled";
   const snoozedExpanded = snoozedShelfExpanded || statusTab === "snoozed";
-  const workingExpanded = workingShelfExpanded || statusTab === "working";
+  const workingExpanded =
+    workingShelfExpanded || statusTab === "working" || statusTab === "waiting";
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
@@ -559,7 +557,6 @@ function useSidebarThreads(input: {
           };
         });
   const orderedThreads = [
-    ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
       : projectFolders.flatMap((folder) => folder.threads)),
@@ -569,7 +566,6 @@ function useSidebarThreads(input: {
   ];
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
-    [pinnedThreads, "pinned"],
     [activeThreads, "active"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
@@ -612,7 +608,8 @@ function useSidebarThreads(input: {
     settledThreadKeys: new Set(settledThreads.map(threadShellKey)),
     snoozedThreadKeys: new Set(snoozedThreads.map(threadShellKey)),
     sectionByThreadKey,
-    pinnedKeys: pinnedThreads.map(threadShellKey),
+    // Fork-only: pins have no section of their own; dragging to Pinned only pins.
+    pinnedKeys: NO_DRAGGED_ORDER,
     activeKeys: activeThreads.map(threadShellKey),
     pinnedKeysById: new Map(
       threads.map((thread) => [threadShellKey(thread), thread.pinOrderKey ?? null] as const),
@@ -644,10 +641,7 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             !effectiveSnoozed(thread, { now: preciseNow })),
       )
     : scoped;
-  const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null, {
-    pinsCanWork: input.pinnedOnly,
-  });
-  const pinned: EnvironmentThreadShell[] = [];
+  const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
   const inbox = (thread: EnvironmentThreadShell, manuallyMoved = false) =>
@@ -655,9 +649,6 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     (manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread))
       ? working
       : active;
-  // Fork-only: under the pin filter a working pin leaves the pinned list for the Working shelf.
-  const shelvesAsWorking = (thread: EnvironmentThreadShell) =>
-    input.pinnedOnly && inbox(thread) === working;
   const snoozed: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const draggable = new Set<string>();
@@ -676,12 +667,7 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
         optimisticDrop.occurredAt,
         optimisticDrop.assignedKeys.get(threadKey),
       );
-      (optimisticDrop.section === "pinned"
-        ? pinned
-        : optimisticDrop.section === "settled"
-          ? settled
-          : inbox(projected, true)
-      ).push(
+      (optimisticDrop.section === "settled" ? settled : inbox(projected, true)).push(
         optimisticDrop.clearsSnooze
           ? projected
           : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
@@ -690,36 +676,18 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
         settled: configLoaded && thread.settledOverride === "settled",
-        pinned: thread.pinnedAt != null && !shelvesAsWorking(thread),
+        // Fork-only: a pin is a mark for the pin filter; pinned threads sort in with the rest.
+        pinned: false,
       });
-      (section === "snoozed"
-        ? snoozed
-        : section === "settled"
-          ? settled
-          : section === "pinned"
-            ? pinned
-            : inbox(thread)
-      ).push(thread);
+      (section === "snoozed" ? snoozed : section === "settled" ? settled : inbox(thread)).push(
+        thread,
+      );
     }
   }
   // A loaded config gates dragging only; the sort must not depend on it, so web and mobile agree.
-  const sortedPinned = sortPinnedSection(
-    pinned,
-    input.pinnedOnly,
-    inboxObservation.returnedAt,
-    (thread) => input.openSpecThreads.has(threadShellKey(thread)),
-  );
-  const sortedActive = sortThreadsByStatus(active, inboxObservation.returnedAt, (thread) =>
+  const sortedActive = sortThreadsByStatus(active, (thread) =>
     input.openSpecThreads.has(threadShellKey(thread)),
   );
-  const orderedPinned =
-    optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
-      ? sortedPinned
-      : orderItemsByPreferredIds({
-          items: sortedPinned,
-          preferredIds: optimisticDrop.order,
-          getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        });
   const orderedActive =
     optimisticDrop?.section !== "active" || optimisticDrop.order === null
       ? sortedActive
@@ -737,7 +705,7 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const sortedSettled = sortSettledThreads(settled);
   const status = applySidebarStatusTab(
     {
-      pinned: orderedPinned,
+      pinned: [],
       active: orderedActive,
       working: sortedWorking,
       snoozed: sortedSnoozed,
@@ -749,7 +717,6 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   return {
     statusTab: status.tab,
     statusTabCounts: status.counts,
-    pinnedThreads: status.pinned,
     draggableThreadKeys: draggable,
     activeReorderableThreadKeys: activeReorderable,
     activeThreads: status.active,
@@ -757,13 +724,7 @@ export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     snoozedThreads: status.snoozed,
     settledThreads: status.settled,
     // Search covers every thread, whichever status tab is chosen.
-    searchableThreads: [
-      ...orderedPinned,
-      ...orderedActive,
-      ...sortedWorking,
-      ...sortedSnoozed,
-      ...sortedSettled,
-    ],
+    searchableThreads: [...orderedActive, ...sortedWorking, ...sortedSnoozed, ...sortedSettled],
     visibleThreads: visible,
     snoozeNow: preciseNow,
   };
@@ -1399,7 +1360,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const {
     openSpecThreads,
     workingShelfEnabled,
-    pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
     activeThreads,
@@ -2027,24 +1987,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a project the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
-      pinnedThreads.length +
-        activeThreads.length +
-        workingThreads.length +
-        snoozedThreads.length +
-        settledCount ===
-        0
+      activeThreads.length + workingThreads.length + snoozedThreads.length + settledCount === 0
     ) {
       return [];
     }
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
     const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (workingThreads.length > 0) {
-      if (statusTab !== "working") items.push({ kind: "marker", marker: "working-header" });
+      if (statusTab !== "working" && statusTab !== "waiting") {
+        items.push({ kind: "marker", marker: "working-header" });
+      }
       items.push(...rowsOf(visibleWorkingThreads, "working"));
     }
     if (snoozedThreads.length > 0) {
@@ -3690,11 +3645,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           {!isSearchingThreads &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
-          pinnedThreads.length +
-            activeThreads.length +
-            workingThreads.length +
-            snoozedThreads.length +
-            settledCount ===
+          activeThreads.length + workingThreads.length + snoozedThreads.length + settledCount ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (

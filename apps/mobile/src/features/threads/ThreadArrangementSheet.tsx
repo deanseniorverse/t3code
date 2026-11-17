@@ -34,7 +34,6 @@ import {
   sortThreadsByListV2Status,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
-  threadListInboxReturns,
 } from "./threadListV2";
 import { useThreadListNow } from "./use-thread-list-now";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
@@ -197,7 +196,7 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
     );
     return {
       pinned,
-      active: sortThreadsByListV2Status(active, threadListInboxReturns.returnedAt),
+      active: sortThreadsByListV2Status(active),
       activeByOrderKey: active,
       snoozed: parked.filter((thread) => effectiveSnoozed(thread, { now })),
       settled: sortSettledThreads(parked.filter((thread) => !effectiveSnoozed(thread, { now }))),
