@@ -118,6 +118,7 @@ export const STATUS_TAB_LABELS: Record<SidebarStatusTab, string> = {
   done: "Done",
   read: "Read",
   working: "Working",
+  waiting: "Waiting",
   snoozed: "Snoozed",
   settled: "Settled",
 };

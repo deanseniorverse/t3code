@@ -1,33 +1,19 @@
-import { ThreadId } from "@t3tools/contracts";
+import { RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { makeThreadFixture } from "../test-fixtures";
-import { sidebarStatusTabOf, sortPinnedSection } from "./sidebarStatusSort";
-
-describe("sortPinnedSection", () => {
-  const first = makeThreadFixture({ id: ThreadId.make("first-pin") });
-  const second = makeThreadFixture({ id: ThreadId.make("second-pin") });
-  const pinned = [
-    { ...first, pinnedAt: first.createdAt, pinOrderKey: "a" },
-    { ...second, pinnedAt: second.createdAt, pinOrderKey: "b" },
-  ];
-  const waitingOnInput = (thread: { readonly id: string }) => thread.id === "second-pin";
-
-  it("keeps the dragged pin order with the filter off", () => {
-    expect(
-      sortPinnedSection(pinned, false, undefined, waitingOnInput).map((thread) => thread.id),
-    ).toEqual(["first-pin", "second-pin"]);
-  });
-
-  it("sorts by status with the filter on, so input-needed pins rise", () => {
-    expect(
-      sortPinnedSection(pinned, true, undefined, waitingOnInput).map((thread) => thread.id),
-    ).toEqual(["second-pin", "first-pin"]);
-  });
-});
+import { sidebarStatusTabOf } from "./sidebarStatusSort";
 
 describe("sidebarStatusTabOf", () => {
-  const idle = makeThreadFixture();
+  const idle = makeThreadFixture({ runtime: null });
+  const finishedRun = {
+    runId: RunId.make("run-plan"),
+    status: "completed" as const,
+    requestedAt: idle.createdAt,
+    startedAt: idle.createdAt,
+    completedAt: idle.createdAt,
+    assistantMessageId: null,
+  };
   const plain = { snoozed: false, settled: false, hasOpenSpecQuestions: false };
 
   it.each([
@@ -35,9 +21,32 @@ describe("sidebarStatusTabOf", () => {
     { name: "a settled thread", thread: idle, input: { ...plain, settled: true }, tab: "settled" },
     {
       name: "a running thread",
-      thread: { ...idle, runtime: { ...idle.runtime!, status: "running" as const } },
+      thread: { ...idle, runtime: { ...makeThreadFixture().runtime!, status: "running" as const } },
       input: plain,
       tab: "working",
+    },
+    {
+      name: "an idle thread",
+      thread: { ...idle, runtime: { ...makeThreadFixture().runtime!, status: "idle" as const } },
+      input: plain,
+      tab: "waiting",
+    },
+    {
+      name: "a finished plan waiting for approval",
+      thread: {
+        ...idle,
+        interactionMode: "plan" as const,
+        hasActionableProposedPlan: true,
+        latestRun: finishedRun,
+      },
+      input: plain,
+      tab: "input",
+    },
+    {
+      name: "a thread waiting on sign-in",
+      thread: { ...idle, hasPendingSignIn: true },
+      input: plain,
+      tab: "input",
     },
     {
       name: "a thread with an open spec question",

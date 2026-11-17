@@ -11,7 +11,7 @@ describe("partitionSidebarThreads", () => {
     id: ThreadId.make(id),
     pinnedAt: pinOrderKey === null ? null : idle.createdAt,
     pinOrderKey,
-    ...(working ? { runtime: { ...idle.runtime!, status: "running" as const } } : {}),
+    runtime: working ? { ...idle.runtime!, status: "running" as const } : null,
   });
   const threads = [
     thread("pinned-working", "a", true),
@@ -20,15 +20,17 @@ describe("partitionSidebarThreads", () => {
     thread("unpinned-idle", null, false),
   ];
 
+  const ids = (list: readonly { readonly id: string }[]) =>
+    list.map((entry) => entry.id).toSorted();
+
   it.each([
     {
       pinnedOnly: false,
-      pinned: ["pinned-working", "pinned-idle"],
-      active: ["unpinned-idle"],
-      working: ["unpinned-working"],
+      active: ["pinned-idle", "unpinned-idle"],
+      working: ["pinned-working", "unpinned-working"],
     },
-    { pinnedOnly: true, pinned: ["pinned-idle"], active: [], working: ["pinned-working"] },
-  ])("places threads with the pin filter $pinnedOnly", (expected) => {
+    { pinnedOnly: true, active: ["pinned-idle"], working: ["pinned-working"] },
+  ])("lists pins with the rest, and the pin filter $pinnedOnly only filters", (expected) => {
     const partition = partitionSidebarThreads({
       threads,
       scopedProjectKeys: null,
@@ -41,35 +43,30 @@ describe("partitionSidebarThreads", () => {
       statusTab: "all",
       clockKey: "",
     });
-    const ids = (list: readonly { readonly id: string }[]) => list.map((entry) => entry.id);
     expect({
-      pinned: ids(partition.pinnedThreads),
       active: ids(partition.activeThreads),
       working: ids(partition.workingThreads),
-    }).toEqual({ pinned: expected.pinned, active: expected.active, working: expected.working });
+    }).toEqual({ active: expected.active, working: expected.working });
   });
 
   it.each([
     {
       statusTab: "input" as const,
       tab: "input",
-      pinned: ["pinned-idle"],
-      active: [],
+      active: ["pinned-idle"],
       working: [],
     },
     {
       statusTab: "working" as const,
       tab: "working",
-      pinned: ["pinned-working"],
       active: [],
-      working: ["unpinned-working"],
+      working: ["pinned-working", "unpinned-working"],
     },
     {
       statusTab: "failed" as const,
       tab: "all",
-      pinned: ["pinned-working", "pinned-idle"],
-      active: ["unpinned-idle"],
-      working: ["unpinned-working"],
+      active: ["pinned-idle", "unpinned-idle"],
+      working: ["pinned-working", "unpinned-working"],
     },
   ])("narrows to the $statusTab tab, or to all when that group is empty", (expected) => {
     const partition = partitionSidebarThreads({
@@ -84,18 +81,25 @@ describe("partitionSidebarThreads", () => {
       statusTab: expected.statusTab,
       clockKey: "",
     });
-    const ids = (list: readonly { readonly id: string }[]) => list.map((entry) => entry.id);
     expect({
       tab: partition.statusTab,
       counts: partition.statusTabCounts,
-      pinned: ids(partition.pinnedThreads),
       active: ids(partition.activeThreads),
       working: ids(partition.workingThreads),
       searchable: partition.searchableThreads.length,
     }).toEqual({
       tab: expected.tab,
-      counts: { all: 4, input: 1, failed: 0, done: 0, read: 1, working: 2, snoozed: 0, settled: 0 },
-      pinned: expected.pinned,
+      counts: {
+        all: 4,
+        input: 1,
+        failed: 0,
+        done: 0,
+        read: 1,
+        working: 2,
+        waiting: 0,
+        snoozed: 0,
+        settled: 0,
+      },
       active: expected.active,
       working: expected.working,
       searchable: 4,

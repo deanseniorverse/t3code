@@ -216,7 +216,7 @@ describe("search lists ranked matches", () => {
 });
 
 describe("active section status order", () => {
-  it("lists input, failed, unread done, then read threads, each newest first", () => {
+  it("lists every status newest first, read threads by their latest activity", () => {
     const at = (hour: number) => `2026-06-01T${String(hour).padStart(2, "0")}:00:00.000Z`;
     const failed = (lastErrorClass?: "usage_limit") => ({
       status: "failed" as const,
@@ -250,10 +250,10 @@ describe("active section status order", () => {
       });
     const layout = buildThreadListV2Items({
       threads: [
-        thread("read-recent", 1, { lastVisitedAt: at(20) }),
+        thread("read-recent", 1, { lastVisitedAt: at(20), latestUserMessageAt: at(13) }),
         thread("done-new", 12),
         thread("limited", 11, { runtime: failed("usage_limit") }),
-        thread("read-old", 1, { lastVisitedAt: at(18) }),
+        thread("read-old", 1, { lastVisitedAt: at(18), latestUserMessageAt: at(2) }),
         thread("input-new", 9, { hasPendingUserInput: true }),
         thread("failed", 8, { runtime: failed() }),
         thread("done-old", 6),
@@ -265,13 +265,13 @@ describe("active section status order", () => {
     });
 
     expect(layout.items.map((item) => item.thread.id)).toEqual([
-      "input-new",
-      "approval-old",
-      "limited",
-      "failed",
-      "done-new",
-      "done-old",
       "read-recent",
+      "done-new",
+      "limited",
+      "input-new",
+      "failed",
+      "done-old",
+      "approval-old",
       "read-old",
     ]);
   });
@@ -318,6 +318,7 @@ describe("status tabs", () => {
       done: 0,
       read: 1,
       working: 0,
+      waiting: 0,
       snoozed: 0,
       settled: 3,
     });
@@ -1730,8 +1731,8 @@ describe("Working section beta", () => {
     const layout = build();
     expect(ids(layout)).toEqual([
       "pinned-working",
-      "asks-approval",
       "finished-late",
+      "asks-approval",
       "finished-early",
     ]);
     expect(layout.workingCount).toBe(1);
@@ -1753,7 +1754,6 @@ describe("Working section beta", () => {
         threads: [inactive],
         workingShelfExpanded: true,
         isWorking: tracker.isWorking,
-        inboxReturnAt: tracker.returnedAt,
       });
     try {
       tracker.observe([working]);
@@ -1768,14 +1768,6 @@ describe("Working section beta", () => {
       tracker.observe(null);
       vi.useRealTimers();
     }
-  });
-
-  it("orders the inbox by the latest return this device observed", () => {
-    const layout = build({
-      inboxReturnAt: (thread) =>
-        thread.id === "finished-early" ? Date.parse("2026-06-01T04:00:00.000Z") : undefined,
-    });
-    expect(ids(layout).slice(1)).toEqual(["asks-approval", "finished-early", "finished-late"]);
   });
 
   it("places the shelf after queued tasks and before snoozed and settled threads", () => {

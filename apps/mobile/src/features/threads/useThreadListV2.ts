@@ -111,7 +111,6 @@ export function useThreadListV2(input: {
     now: input.now,
     workingShelfEnabled,
     workingShelfExpanded: input.workingShelfExpanded,
-    inboxReturnAt: inbox.returnedAt,
     isWorking: inbox.isWorking,
     snoozedShelfExpanded: input.snoozedShelfExpanded,
     settledShelfExpanded: input.settledShelfExpanded,
