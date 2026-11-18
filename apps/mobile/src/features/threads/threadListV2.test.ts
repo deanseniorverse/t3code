@@ -295,7 +295,7 @@ describe("status tabs", () => {
       settledAt: at(3),
     }),
   ];
-  const build = (statusTab: "all" | "input" | "failed" | "settled") => {
+  const build = (statusTab: "all" | "open" | "input" | "failed" | "settled") => {
     const layout = buildThreadListV2Items({
       threads,
       environmentId: null,
@@ -313,6 +313,7 @@ describe("status tabs", () => {
     const { layout, ids } = build("all");
     expect(layout.statusTabCounts).toEqual({
       all: 6,
+      open: 3,
       input: 2,
       failed: 0,
       done: 0,
@@ -324,6 +325,13 @@ describe("status tabs", () => {
     });
     expect(ids).toEqual(["pinned-input", "input", "read"]);
     expect(layout.settledShelfHeaderIndex).toBe(3);
+  });
+
+  it("lists every thread but the settled ones on Open", () => {
+    const { layout, ids } = build("open");
+    expect(layout.statusTab).toBe("open");
+    expect(ids).toEqual(["pinned-input", "input", "read"]);
+    expect(layout.settledShelfHeaderIndex).toBeNull();
   });
 
   it("lists one tab's threads, pinned ones included", () => {

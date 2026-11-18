@@ -144,7 +144,7 @@ export function useThreadListV2(input: {
           scopedProjectKey(pendingTask.environmentId, pendingTask.projectId),
         )) &&
       (searchQuery.length === 0 || pendingTask.title.toLocaleLowerCase().includes(searchQuery)) &&
-      (layout.statusTab === "all" || searchQuery.length > 0),
+      (layout.statusTab === "all" || layout.statusTab === "open" || searchQuery.length > 0),
   );
   const items = buildThreadListV2ListItems({
     items: layout.items,

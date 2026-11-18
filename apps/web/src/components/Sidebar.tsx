@@ -1415,6 +1415,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : null,
     keepEmptyFolders: scopedProjectGroups.length > 0,
   });
+  // All and Open list several sections, so the shelves keep their headers and spacing.
+  const listsShelves = statusTab === "all" || statusTab === "open";
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -3363,7 +3365,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             variant={rowVariant}
                             navigationParent={
                               folderRow ??
-                              (statusTab === "all" &&
+                              (listsShelves &&
                               (section === "working" ||
                                 section === "snoozed" ||
                                 section === "settled")
@@ -3542,7 +3544,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="working-shelf-header"
                                 marker="working-header"
-                                className={cn(statusTab === "all" && "mt-auto")}
+                                className={cn(listsShelves && "mt-auto")}
                                 label="Working"
                                 count={workingThreads.length}
                                 toggle={{
@@ -3558,7 +3560,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
                                 className={cn(
-                                  statusTab === "all" && workingThreads.length === 0 && "mt-auto",
+                                  listsShelves && workingThreads.length === 0 && "mt-auto",
                                 )}
                                 label="Snoozed"
                                 count={snoozedThreads.length}

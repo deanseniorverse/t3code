@@ -852,7 +852,7 @@ export function buildThreadListV2Items(input: {
 
   const items: ThreadListV2Item[] = [];
   // One tab lists its threads flat: the tab names the shelf, so its header is out.
-  const shelfHeaders = statusTab === "all";
+  const shelfHeaders = statusTab === "all" || statusTab === "open";
   for (const thread of applyPendingThreadOrder(
     sortPinnedThreadsByOrderKey(status.pinned),
     "pinned",
