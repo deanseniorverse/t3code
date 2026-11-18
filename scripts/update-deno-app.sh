@@ -105,15 +105,17 @@ quit_app() {
 
 # One open right after a quit can be lost while the old instance is still shutting down,
 # so open until the app is seen running.
+# Run from a T3 Code terminal, the shell carries ELECTRON_RUN_AS_NODE, and an app opened
+# with it starts as plain Node and exits at once.
 open_app() {
   local attempt
   for attempt in 1 2 3 4 5 6; do
-    open "$APP_PATH" || true
+    env -u ELECTRON_RUN_AS_NODE open "$APP_PATH" || true
     sleep 5
     if is_running "$APP_NAME"; then
       # A second open asks the running app to show its window in front.
       sleep 2
-      open "$APP_PATH" || true
+      env -u ELECTRON_RUN_AS_NODE open "$APP_PATH" || true
       return 0
     fi
     echo "$APP_NAME is not running after open, attempt $attempt"
