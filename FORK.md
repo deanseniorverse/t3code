@@ -39,13 +39,6 @@ Placeholder: we define this process the first time we take an upstream update. I
 - **What:** each row names its environment (host included), on the meta line without a branch, beside the provider icons with one.
 - **Where:** `apps/web/src/components/sidebar/SidebarThreadRow.tsx`, `Sidebar.tsx`.
 
-### 4. Unnamed threads take their branch's name
-
-- **Goal:** threads read as the work they hold (pb-t3 names branches after spec slugs) without a title generation.
-- **What:** a thread nobody named takes its branch name, raw, and follows branch changes; on the default branch it reads `<project> · main`. Renaming or regenerating the title marks it named, and the name then sticks. Unnamed branch threads skip the first-message title generation.
-- **Where:** `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`.
-- **Rebase risk:** high. The orchestrator and contracts move fast upstream; re-apply against the new event shapes.
-
 ### 5. Threads can attach extra folders
 
 - **Goal:** one thread drives a framework spec across sibling repos (framework, clients, services).

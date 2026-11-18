@@ -312,71 +312,75 @@ describe("ThreadTitleRegenerationService", () => {
     }),
   );
 
-  it.effect("names an unnamed branch thread after its branch until someone names it", () =>
-    Effect.gen(function* () {
-      const harness = makeHarness();
-      yield* Effect.gen(function* () {
-        const threads = yield* ThreadManagement.ThreadManagementService;
-        const outbox = yield* EffectOutbox.EffectOutboxV2;
-        const threadId = ThreadId.make("thread:title:branch");
-        yield* threads.dispatch({
-          type: "thread.create",
-          commandId: CommandId.make("command:title:branch:create"),
-          threadId,
-          projectId,
-          title: "Seed title",
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: "2026-10-copay",
-          worktreePath: "/repo-2026-10-copay",
-          createdBy: "user",
-          creationSource: "web",
-        });
-        assert.equal((yield* threads.getThreadProjection(threadId)).thread.title, "2026-10-copay");
+  it.effect(
+    "titles a branch thread from its first message and keeps the title across branch changes",
+    () =>
+      Effect.gen(function* () {
+        const harness = makeHarness();
+        yield* Effect.gen(function* () {
+          const threads = yield* ThreadManagement.ThreadManagementService;
+          const titleRegeneration = yield* ThreadTitleRegeneration.ThreadTitleRegenerationService;
+          const threadId = ThreadId.make("thread:title:branch");
+          yield* threads.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("command:title:branch:create"),
+            threadId,
+            projectId,
+            title: "New thread",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: "main",
+            worktreePath: null,
+            createdBy: "user",
+            creationSource: "web",
+          });
+          const requestId = CommandId.make("command:title:branch:message");
+          const messageId = MessageId.make("command:title:branch:message:message");
+          yield* threads.dispatch({
+            type: "message.dispatch",
+            commandId: requestId,
+            threadId,
+            messageId,
+            text: "Fix the hub models on the M3 Pro",
+            titleSeed: "Fix the hub models on the M3 Pro",
+            attachments: [],
+            modelSelection,
+            dispatchMode: { type: "defer_start" },
+            createdBy: "user",
+            creationSource: "web",
+          });
+          assert.equal(
+            (yield* threads.getThreadProjection(threadId)).thread.title,
+            "Fix the hub models on the M3 Pro",
+          );
 
-        yield* dispatchUserMessage({
-          command: "command:title:branch:message",
-          threadId,
-          text: "Hi",
-        });
-        assert.notDeepInclude(
-          (yield* outbox.listByCommandId(CommandId.make("command:title:branch:message"))).map(
-            (effect) => effect.request.type,
-          ),
-          "thread-title.generate",
-        );
-        assert.equal((yield* threads.getThreadProjection(threadId)).thread.title, "2026-10-copay");
+          yield* titleRegeneration.execute({
+            threadId,
+            requestId,
+            kind: { type: "initial", messageId },
+          });
+          assert.equal(
+            harness.generateThreadTitle.mock.calls[0]?.[0]?.message,
+            "Fix the hub models on the M3 Pro",
+          );
+          assert.equal(
+            (yield* threads.getThreadProjection(threadId)).thread.title,
+            "Generated title",
+          );
 
-        yield* threads.dispatch({
-          type: "thread.metadata.update",
-          commandId: CommandId.make("command:title:branch:switch"),
-          threadId,
-          branch: "2026-10-clockout",
-        });
-        assert.equal(
-          (yield* threads.getThreadProjection(threadId)).thread.title,
-          "2026-10-clockout",
-        );
-
-        yield* threads.dispatch({
-          type: "thread.metadata.update",
-          commandId: CommandId.make("command:title:branch:rename"),
-          threadId,
-          title: "Clockout review",
-        });
-        yield* threads.dispatch({
-          type: "thread.metadata.update",
-          commandId: CommandId.make("command:title:branch:switch-again"),
-          threadId,
-          branch: "2026-10-copay",
-        });
-        assert.equal(
-          (yield* threads.getThreadProjection(threadId)).thread.title,
-          "Clockout review",
-        );
-      }).pipe(Effect.provide(harness.layer));
-    }),
+          yield* threads.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make("command:title:branch:switch"),
+            threadId,
+            branch: "2026-10-copay",
+          });
+          assert.equal(
+            (yield* threads.getThreadProjection(threadId)).thread.title,
+            "Generated title",
+          );
+        }).pipe(Effect.provide(harness.layer));
+      }),
   );
 
   it.effect("keeps a thread's extra folders until they are replaced", () =>
