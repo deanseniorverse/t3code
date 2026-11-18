@@ -486,8 +486,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   opens: Schema.optional(LenientThreadOpens),
-  // True once someone names the thread; until then a branch names it.
-  named: Schema.optional(Schema.Boolean),
   // Folders beyond the thread's own checkout that its work reaches, such as sibling repositories.
   folders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(
