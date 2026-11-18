@@ -9,6 +9,7 @@ import {
   threadSpecKey,
   threadSpecRefreshTargets,
   threadSpecsKey,
+  type SpecFileTarget,
   type ThreadSpec,
 } from "@t3tools/client-runtime/state/spec-questions";
 import { MessageId } from "@t3tools/contracts";
@@ -25,19 +26,22 @@ import { useAtomQueryRunner } from "./use-atom-query-runner";
 const threadSpecs = createThreadSpecAtoms(projectEnvironment.readFile);
 
 export function useThreadSpec(thread: EnvironmentThreadShell | null): ThreadSpec | null {
-  const spec = useAtomValue(threadSpecs.threadSpecAtom(threadSpecKey(thread, useProjects())));
+  const key = threadSpecKey(thread, useProjects());
+  const spec = useAtomValue(threadSpecs.threadSpecAtom(key));
+  const missingDocs = useAtomValue(threadSpecs.threadSpecMissingDocsAtom(key));
   const reread = useAtomQueryRunner(projectEnvironment.readFile, {
     reportFailure: false,
     refresh: true,
   });
-  const questionsKey =
-    spec === null || thread === null ? null : JSON.stringify(specQuestionsFileTarget(spec));
+  const refreshKey = JSON.stringify(spec === null ? missingDocs : [specQuestionsFileTarget(spec)]);
   const completedAt = thread?.latestRun?.completedAt ?? null;
-  const rereadQuestions = useEffectEvent((key: string) => void reread(JSON.parse(key)));
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- agents edit questions.yml on disk during a turn; re-read it when one ends
+  const rereadTargets = useEffectEvent((key: string) => {
+    for (const target of JSON.parse(key) as ReadonlyArray<SpecFileTarget>) void reread(target);
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- agents write spec files on disk during a turn; re-read them when one ends
   useEffect(() => {
-    if (completedAt !== null && questionsKey !== null) rereadQuestions(questionsKey);
-  }, [completedAt, questionsKey]);
+    if (completedAt !== null) rereadTargets(refreshKey);
+  }, [completedAt, refreshKey]);
   return spec;
 }
 
@@ -47,19 +51,19 @@ export function useOpenSpecThreads(
   threadKey: (thread: EnvironmentThreadShell) => string,
 ): ReadonlySet<string> {
   const listed = threads.filter(isSpecListThread);
-  const specs = useAtomValue(
-    threadSpecs.threadSpecsAtom(threadSpecsKey(listed, useProjects(), threadKey)),
-  );
+  const listKey = threadSpecsKey(listed, useProjects(), threadKey);
+  const specs = useAtomValue(threadSpecs.threadSpecsAtom(listKey));
+  const missingDocs = useAtomValue(threadSpecs.threadSpecsMissingDocsAtom(listKey));
   const reread = useAtomQueryRunner(projectEnvironment.readFile, {
     reportFailure: false,
     refresh: true,
   });
   const turnsKey = listed
-    .filter((thread) => specs.has(threadKey(thread)))
+    .filter((thread) => specs.has(threadKey(thread)) || missingDocs.has(threadKey(thread)))
     .map((thread) => thread.latestRun?.completedAt ?? "")
     .join();
   const refresh = useEffectEvent(() => {
-    for (const target of threadSpecRefreshTargets(specs)) void reread(target);
+    for (const target of threadSpecRefreshTargets(specs, missingDocs)) void reread(target);
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- agents edit spec files on disk during a turn; re-read them when one ends
   useEffect(() => {

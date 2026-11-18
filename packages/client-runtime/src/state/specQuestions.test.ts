@@ -1,9 +1,15 @@
 import { EnvironmentId, MessageId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { parseSpecQuestions } from "@t3tools/shared/specQuestions";
-import { AsyncResult } from "effect/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createSpecQuestionActions, statusWithOpenSpecQuestions } from "./specQuestions.ts";
+import {
+  createSpecQuestionActions,
+  createThreadSpecAtoms,
+  statusWithOpenSpecQuestions,
+  threadSpecRefreshTargets,
+  type SpecFileTarget,
+} from "./specQuestions.ts";
 
 const environmentId = EnvironmentId.make("environment-local");
 const thread = {
@@ -99,6 +105,60 @@ describe("createSpecQuestionActions", () => {
       "Q9 is no longer in specs/2026-10-photos/questions.yml.",
     );
     expect(h.writeFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("createThreadSpecAtoms", () => {
+  it("finds a spec created after the first read once its candidate paths are re-read", () => {
+    const files = new Map([
+      ["/other/t3-specs.json", `{ "specs": [{ "doc": "tickets/{slug}.md" }] }`],
+    ]);
+    const readFile = Atom.family((key: string) =>
+      Atom.make(() => {
+        const target = JSON.parse(key) as SpecFileTarget;
+        const contents = files.get(`${target.input.cwd}/${target.input.relativePath}`);
+        return AsyncResult.success({
+          relativePath: target.input.relativePath,
+          contents: contents ?? "",
+          byteLength: contents?.length ?? 0,
+          truncated: false,
+          ...(contents === undefined ? { exists: false as const } : {}),
+        });
+      }),
+    );
+    const atomFor = (target: SpecFileTarget) => readFile(JSON.stringify(target));
+    const atoms = createThreadSpecAtoms(atomFor);
+    const specKey = JSON.stringify([environmentId, "2026-11-freeze", ["/repo", "/other"]]);
+    const listKey = JSON.stringify([["thread-1", specKey]]);
+    const registry = AtomRegistry.make();
+    const missingOf = () => registry.get(atoms.threadSpecsMissingDocsAtom(listKey));
+    registry.mount(atoms.threadSpecsAtom(listKey));
+    registry.mount(atoms.threadSpecsMissingDocsAtom(listKey));
+    const listChanged = vi.fn();
+    registry.subscribe(atoms.threadSpecsAtom(listKey), listChanged);
+    registry.subscribe(atoms.threadSpecsMissingDocsAtom(listKey), listChanged);
+
+    expect(registry.get(atoms.threadSpecsAtom(listKey)).size).toBe(0);
+    const targets = threadSpecRefreshTargets(new Map(), missingOf());
+    expect(targets.map((target) => `${target.input.cwd}/${target.input.relativePath}`)).toEqual([
+      "/repo/specs/2026-11-freeze/spec.md",
+      "/other/tickets/2026-11-freeze.md",
+    ]);
+
+    // Still missing: nothing the list reads changes, so it does not re-render.
+    for (const target of targets) registry.refresh(atomFor(target));
+    expect(listChanged).not.toHaveBeenCalled();
+
+    files.set("/other/tickets/2026-11-freeze.md", "# Freeze the board\n");
+    for (const target of targets) registry.refresh(atomFor(target));
+
+    expect(registry.get(atoms.threadSpecsAtom(listKey)).get("thread-1")).toMatchObject({
+      title: "Freeze the board",
+      root: "/other",
+      docPath: "tickets/2026-11-freeze.md",
+    });
+    expect(missingOf().size).toBe(0);
+    registry.dispose();
   });
 });
 
