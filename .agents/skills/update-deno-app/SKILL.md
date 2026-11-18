@@ -1,6 +1,6 @@
 ---
 name: update-deno-app
-description: Build and install Dean's T3 Code (Deno) Mac app, roll it back, or fix it when it will not start. Use for "update the app", "new desktop build", "install the new build", "roll back", or "T3 Code is broken". Dean may be running this from the claude CLI in Terminal because T3 Code is down.
+description: Build and install Dean's T3 Code (Deno) Mac app, roll it back, or fix it when it will not start. Use for "update the app", "new desktop build", "install the new build", "update every machine", "roll back", or "T3 Code is broken". Dean may be running this from the claude CLI in Terminal because T3 Code is down.
 ---
 
 # Update T3 Code (Deno)
@@ -13,6 +13,16 @@ The script is `scripts/update-deno-app.sh`, run from the repo root. Dean's fork 
 2. Only if Dean asked for it, pull or rebase first. Never push, and never commit unasked.
 3. Run `scripts/update-deno-app.sh` in the background. The build takes about 10 minutes.
 4. The script quits and reopens the app. Inside T3 Code, that ends your session: before you start, tell Dean this will happen and that a Mac notification confirms the install. From Terminal it reports DONE or FAILED.
+
+## Update every machine
+
+When Dean asks to update T3 Code everywhere, on his network or on his other machines, run his personal script `t3-deno-update-all`. It is on his PATH and lives outside this repo.
+
+1. `t3-deno-update-all --status` shows what each machine has installed.
+2. `t3-deno-update-all` sends the newest build in `release/` to the other machines and installs it there. Run it in the background.
+3. `t3-deno-update-all --build` runs the Update steps above on this machine first, then sends that build.
+
+It restarts T3 Code on each machine, which ends the threads running there, so tell Dean before you start. The script holds the machine list. Never copy that list, a machine name or an address into this repo.
 
 ## T3 Code is broken
 
