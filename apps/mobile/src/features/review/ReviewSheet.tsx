@@ -1,3 +1,4 @@
+import { connectionEntryLabel } from "@t3tools/client-runtime/connection";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -684,7 +685,11 @@ export function ReviewSheet(props: ReviewSheetProps) {
           {showConnectionNotice ? (
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice
-                environmentLabel={environment.presentation?.entry.target.label ?? "Environment"}
+                environmentLabel={
+                  environment.presentation
+                    ? connectionEntryLabel(environment.presentation.entry)
+                    : "Environment"
+                }
                 connection={
                   environment.presentation?.connection ?? {
                     phase: "available",

@@ -123,6 +123,59 @@ function activeThreadAnchorTimestampMs(thread: {
   );
 }
 
+type StatusTimeSortInput = Pick<
+  EnvironmentThreadShell,
+  "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun" | "latestUserMessageAt"
+>;
+
+/** Fork-only: when the latest run finished, else when it started, else when the thread was created. */
+function threadRunTimestampMs(thread: StatusTimeSortInput): number {
+  return (
+    getFirstSortableTimestamp(
+      thread.latestRun?.completedAt,
+      thread.latestRun?.startedAt,
+      thread.latestRun?.requestedAt,
+      thread.createdAt,
+    ) ?? 0
+  );
+}
+
+/** Fork-only: the thread's latest activity. */
+function threadActivityTimestampMs(thread: StatusTimeSortInput): number {
+  return Math.max(
+    ...[
+      thread.createdAt,
+      thread.unsettledAt,
+      thread.latestUserMessageAt,
+      thread.latestRun?.requestedAt,
+      thread.latestRun?.startedAt,
+      thread.latestRun?.completedAt,
+    ].map((value) => toSortableTimestamp(value ?? undefined) ?? 0),
+  );
+}
+
+/**
+ * Fork-only: orders a list newest first across every status. Read threads go by their
+ * latest activity; the rest by when their latest run finished, started, or they were created.
+ */
+export function sortThreadsByStatusTime<T extends StatusTimeSortInput>(
+  threads: readonly T[],
+  tabOf: (thread: T) => ThreadListTab,
+): T[] {
+  const keys = new Map(
+    threads.map((thread) => [
+      thread,
+      tabOf(thread) === "read" ? threadActivityTimestampMs(thread) : threadRunTimestampMs(thread),
+    ]),
+  );
+  return [...threads].sort(
+    (left, right) =>
+      keys.get(right)! - keys.get(left)! ||
+      left.id.localeCompare(right.id) ||
+      left.environmentId.localeCompare(right.environmentId),
+  );
+}
+
 export function sortThreads<T extends { readonly id: string } & ThreadSortInput>(
   threads: readonly T[],
   sortOrder: SidebarThreadSortOrder,
@@ -328,4 +381,80 @@ export function sortActiveThreadsByOrderKey<
       (left.environmentId ?? "").localeCompare(right.environmentId ?? "")
     );
   });
+}
+
+/** In list order: the four status groups of the main list, then Working, Waiting and the shelves. */
+export const THREAD_STATUS_TABS = [
+  "input",
+  "failed",
+  "done",
+  "read",
+  "working",
+  "waiting",
+  "snoozed",
+  "settled",
+] as const;
+export type ThreadStatusTab = "all" | (typeof THREAD_STATUS_TABS)[number];
+export type ThreadStatusTabCounts = Record<ThreadStatusTab, number>;
+/** The tabs a main-list or Working-shelf thread files under. */
+export type ThreadListTab = "input" | "failed" | "done" | "read" | "working" | "waiting";
+
+export interface ThreadStatusSections<T> {
+  readonly pinned: readonly T[];
+  readonly active: readonly T[];
+  readonly working: readonly T[];
+  readonly snoozed: readonly T[];
+  readonly settled: readonly T[];
+}
+
+/**
+ * Counts each status tab and narrows the sections to the chosen one.
+ * A tab with no threads falls back to "all", so it can be dropped from the row; "settled"
+ * never does here, because older settled threads load in pages the caller counts.
+ * `tabOf` places a pinned, main-list or Working-shelf (`shelf` true) thread.
+ */
+export function applyThreadStatusTab<T>(
+  sections: ThreadStatusSections<T>,
+  requested: ThreadStatusTab,
+  tabOf: (thread: T, shelf: boolean) => ThreadListTab,
+): ThreadStatusSections<T> & {
+  readonly tab: ThreadStatusTab;
+  readonly counts: ThreadStatusTabCounts;
+} {
+  const counts: ThreadStatusTabCounts = {
+    all: 0,
+    input: 0,
+    failed: 0,
+    done: 0,
+    read: 0,
+    working: 0,
+    waiting: 0,
+    snoozed: sections.snoozed.length,
+    settled: sections.settled.length,
+  };
+  const tabs = new Map<T, ThreadStatusTab>();
+  for (const [list, shelf] of [
+    [sections.pinned, false],
+    [sections.active, false],
+    [sections.working, true],
+  ] as const) {
+    for (const thread of list) {
+      const tab = tabOf(thread, shelf);
+      tabs.set(thread, tab);
+      counts[tab] += 1;
+    }
+  }
+  for (const tab of THREAD_STATUS_TABS) counts.all += counts[tab];
+  const tab = requested !== "settled" && counts[requested] === 0 ? "all" : requested;
+  if (tab === "all") return { ...sections, tab, counts };
+  const listed = (list: readonly T[]) => list.filter((thread) => tabs.get(thread) === tab);
+  return {
+    tab,
+    counts,
+    pinned: listed(sections.pinned),
+    active: listed(sections.active),
+    working: listed(sections.working),
+    snoozed: tab === "snoozed" ? sections.snoozed : [],
+    settled: tab === "settled" ? sections.settled : [],
+  };
 }

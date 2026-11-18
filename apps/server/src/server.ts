@@ -372,6 +372,7 @@ const layerPullRequestService = PullRequestService.layer.pipe(
   Layer.provide(PullRequestReadCache.layer),
   Layer.provide(layerSourceControlProviderRegistry),
   Layer.provide(SourceControlRateLimit.layer),
+  Layer.provide(GitVcsDriver.layer),
 );
 
 const layerGitManager = GitManager.layer.pipe(

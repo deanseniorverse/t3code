@@ -135,6 +135,20 @@ describe("where a pull request can be acted on", () => {
     ]);
   });
 
+  it("offers only the servers holding a foreign pull request's repository", () => {
+    const pickable = resolvePickableEnvironments(
+      on("env-1", "f1"),
+      [
+        project("f1", "env-1", "github.com/acme/framework"),
+        project("f2", "env-2", "github.com/acme/framework"),
+        project("c3", "env-3", "github.com/acme/clients"),
+      ],
+      connected("env-1", "env-2", "env-3"),
+      "github.com/acme/clients",
+    );
+    expect(pickable.map((entry) => entry.environmentId)).toEqual(["env-3"]);
+  });
+
   it("names one copy per server, so two worktrees are one choice", () => {
     const pickable = resolvePickableEnvironments(
       on("env-1", "a1"),

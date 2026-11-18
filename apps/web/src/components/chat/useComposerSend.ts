@@ -1,3 +1,4 @@
+import { connectionEntryLabel } from "@t3tools/client-runtime/connection";
 import {
   mergeDirectPreviewAnnotation,
   resolveBackgroundDraftWorkspaceOptions,
@@ -553,9 +554,8 @@ export function useComposerSend(input: ComposerSendInput) {
       linkedEnvironments,
     })[0];
     if (strandedThread) {
-      const owner =
-        readEnvironmentPresentation(strandedThread.environmentId)?.entry.target.label ??
-        "its machine";
+      const presentation = readEnvironmentPresentation(strandedThread.environmentId);
+      const owner = presentation ? connectionEntryLabel(presentation.entry) : "its machine";
       toastManager.add(
         stackedThreadToast({
           type: "warning",

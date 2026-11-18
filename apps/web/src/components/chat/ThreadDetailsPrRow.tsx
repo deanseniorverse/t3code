@@ -35,6 +35,7 @@ import {
 import {
   buildFixFindingsHandoff,
   buildResolveConflictsPrompt,
+  checkoutUnavailableReason,
   classifyPullRequestChecks,
   describePullRequestChecks,
   isPullRequestConflicting,
@@ -177,6 +178,8 @@ export function ThreadDetailsPrRow({
   const [confirmingMerge, setConfirmingMerge] = useState(false);
 
   const rowAction = resolveThreadPanelPullRequestAction(detail);
+  const checkoutBlockedReason =
+    rowAction === "resolve" || rowAction === "fix" ? checkoutUnavailableReason(detail) : null;
   if (confirmingMerge && rowAction !== "merge") {
     setConfirmingMerge(false);
   }
@@ -454,21 +457,29 @@ export function ThreadDetailsPrRow({
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <ThreadDetailsControl
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      part="meta"
-                      tone={trailingAction.destructive ? "destructive" : "primary"}
-                      disabled={actionPending || handoff !== null}
-                      onClick={trailingAction.onClick}
-                    />
+                    <span className="inline-flex shrink-0">
+                      <ThreadDetailsControl
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        part="meta"
+                        tone={trailingAction.destructive ? "destructive" : "primary"}
+                        disabled={
+                          actionPending || handoff !== null || checkoutBlockedReason !== null
+                        }
+                        onClick={trailingAction.onClick}
+                      >
+                        {trailingAction.pending
+                          ? trailingAction.pendingLabel
+                          : trailingAction.label}
+                        {trailingAction.suffix}
+                      </ThreadDetailsControl>
+                    </span>
                   }
-                >
-                  {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
-                  {trailingAction.suffix}
-                </TooltipTrigger>
-                <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>
+                />
+                <TooltipPopup side="top">
+                  {checkoutBlockedReason ?? trailingAction.tooltip}
+                </TooltipPopup>
               </Tooltip>
             ) : null}
           </div>

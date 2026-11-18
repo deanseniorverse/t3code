@@ -16,6 +16,7 @@ import { THREAD_SIDEBAR_ROW_LAYOUT } from "./threadListAnimations";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { useMemo, useRef, useState } from "react";
+import type { ThreadStatusTab } from "@t3tools/client-runtime/state/thread-sort";
 import type { LayoutChangeEvent, TextInputInstance } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
 import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
@@ -44,6 +45,7 @@ import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadListV2 } from "./useThreadListV2";
+import { ThreadListStatusTabs } from "./ThreadListStatusTabs";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
@@ -285,11 +287,11 @@ function ThreadNavigationSidebarPane(
     pinningEnvironmentIds,
     autoSettleOptOutEnvironmentIds,
     pinReorderEnvironmentIds,
-    activeReorderEnvironmentIds,
     titleRegenerationEnvironmentIds,
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder();
+  const [requestedStatusTab, setStatusTab] = useState<ThreadStatusTab>("all");
   const {
     layout: threadListV2Layout,
     items: threadListV2Items,
@@ -305,7 +307,6 @@ function ThreadNavigationSidebarPane(
     settlementEnvironmentIds,
     snoozeEnvironmentIds,
     pinReorderEnvironmentIds,
-    activeReorderEnvironmentIds,
     queuedThreadKeys,
     settledLimit: settledVisibleCount,
     now,
@@ -316,9 +317,22 @@ function ThreadNavigationSidebarPane(
     snoozedShelfExpanded,
     settledShelfExpanded,
     selectedThreadKey: props.selectedThreadKey ?? null,
+    statusTab: requestedStatusTab,
   });
+  const statusTab = threadListV2Layout.statusTab;
+  // A tab whose last thread left returns the list to All.
+  if (statusTab !== requestedStatusTab) setStatusTab(statusTab);
+  const statusTabs = (
+    <ThreadListStatusTabs
+      tab={statusTab}
+      counts={threadListV2Layout.statusTabCounts}
+      onChange={setStatusTab}
+      gutter={Platform.OS === "android" ? 0 : 8}
+      inset={Platform.OS === "android" ? 16 : 10}
+    />
+  );
   const listItems: readonly SidebarListItem[] =
-    settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0
+    (settledShelfExpanded || statusTab === "settled") && threadListV2Layout.hiddenSettledCount > 0
       ? [
           ...threadListV2Items,
           {
@@ -593,9 +607,7 @@ function ThreadNavigationSidebarPane(
             pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}
             autoSettleOptOutSupported={autoSettleOptOutEnvironmentIds.has(thread.environmentId)}
             reorderSupported={
-              item.item.pinned
-                ? pinReorderEnvironmentIds.has(thread.environmentId)
-                : !workingShelfEnabled && activeReorderEnvironmentIds.has(thread.environmentId)
+              item.item.pinned && pinReorderEnvironmentIds.has(thread.environmentId)
             }
             canMoveUp={item.canMoveUp}
             canMoveDown={item.canMoveDown}
@@ -758,6 +770,7 @@ function ThreadNavigationSidebarPane(
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
+                ListHeaderComponent={statusTabs}
                 ListEmptyComponent={listEmpty}
               />
             </GestureDetector>
@@ -831,6 +844,7 @@ function ThreadNavigationSidebarPane(
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
+                ListHeaderComponent={statusTabs}
                 ListEmptyComponent={listEmpty}
               />
             </GestureDetector>

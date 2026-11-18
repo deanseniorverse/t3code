@@ -59,7 +59,9 @@ import {
   type ReactNode,
 } from "react";
 
+import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { useThreadHasOpenSpecQuestions } from "../../specQuestionsState";
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
 import { useUiStateStore } from "../../uiStateStore";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
@@ -559,7 +561,7 @@ type SidebarThreadRowProps = {
   currentEnvironmentId: string | null;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
-  scratchMachineLabel: string | null;
+  machineLabel: string | null;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
@@ -582,6 +584,7 @@ type SidebarThreadRowProps = {
   onUnsettle: (threadRef: ScopedThreadRef) => void;
   onSnooze: (threadRef: ScopedThreadRef, preset: Pick<SnoozePreset, "snoozedUntil">) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
+  onPin: (threadRef: ScopedThreadRef) => void;
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
@@ -645,6 +648,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     onThreadClick,
     onUnsettle,
     onUnsnooze,
+    onPin,
     onUnpin,
     openPullRequestsInRightPanel,
     renamingTitle,
@@ -706,7 +710,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : null;
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
-  const status = resolveSidebarThreadStatus(thread);
+  const hasOpenSpecQuestions = useThreadHasOpenSpecQuestions(thread);
+  const status = statusWithOpenSpecQuestions(
+    resolveSidebarThreadStatus(thread),
+    thread,
+    hasOpenSpecQuestions,
+  );
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -799,7 +808,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : thread.modelSelection.model;
 
   const isRemote = thread.environmentId !== props.currentEnvironmentId;
-  const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
+  const showsMachineLine = !thread.branch && props.machineLabel !== null;
 
   const detailsTooltip = (
     <SidebarThreadTooltip
@@ -891,6 +900,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     event.preventDefault();
     event.stopPropagation();
     onUnsnooze(threadRef);
+  };
+  const handlePinClick = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onPin(threadRef);
   };
   const handleUnpinClick = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -1122,11 +1136,34 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     )
   ) : null;
 
+  // Fork-only: an unpinned row offers its pin on hover, where favorites' star was.
+  const pinButton =
+    props.isPinned ||
+    !props.pinningSupported ||
+    !canOperateThread ||
+    sortable?.isDragging ? null : (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Pin thread"
+              onClick={handlePinClick}
+              className="inline-flex shrink-0 cursor-pointer items-center rounded-sm text-muted-foreground/65 opacity-0 outline-none transition-colors hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/sidebar-row:opacity-100 group-focus-within/sidebar-row:opacity-100"
+            />
+          }
+        >
+          <PinIcon aria-hidden className="size-3" />
+        </TooltipTrigger>
+        <TooltipPopup>Pin thread</TooltipPopup>
+      </Tooltip>
+    );
+
   const diff = latestRunDiff(thread);
   // Only the provider icon would remain, so the row drops the line instead of leaving it blank.
   const metaLineEmpty =
     !thread.branch &&
-    !showsScratchMachine &&
+    !showsMachineLine &&
     prBadge === null &&
     diff === null &&
     !isRemote &&
@@ -1140,14 +1177,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             <MiddleTruncate value={thread.branch} showTitle={false} />
           </span>
         </>
-      ) : showsScratchMachine ? (
+      ) : showsMachineLine ? (
         <>
           <EnvironmentMachineIcon
             aria-hidden
             kind={props.environmentMachine}
             className="size-3 shrink-0"
           />
-          <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
+          <span className="min-w-0 flex-1 truncate">{props.machineLabel}</span>
         </>
       ) : (
         <span className="flex-1" />
@@ -1164,13 +1201,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         aria-hidden
         className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
       >
-        {isRemote && !showsScratchMachine ? (
-          <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+        {(isRemote || props.machineLabel !== null) && !showsMachineLine ? (
+          <span className="inline-flex min-w-0 shrink items-center gap-1 text-sidebar-muted-foreground/70">
             <EnvironmentMachineIcon
               aria-hidden
               kind={props.environmentMachine}
-              className="size-3.5"
+              className="size-3.5 shrink-0"
             />
+            {props.machineLabel !== null ? (
+              <span className="max-w-24 truncate">{props.machineLabel}</span>
+            ) : null}
           </span>
         ) : null}
         <SidebarProviderStack
@@ -1251,6 +1291,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {title}
               {multiline ? titleLineProviderStack : null}
               {pinIndicator}
+              {pinButton}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
@@ -1428,14 +1469,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 label for the wider row controls. */}
               {pinIndicator}
               {props.projectDisplayName ? (
-                <span
-                  className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
-                >
+                <span className={cn("min-w-0 truncate font-normal text-secondary-label text-xs")}>
                   {props.projectDisplayName}
                 </span>
-              ) : (
-                <span className="flex-1" />
-              )}
+              ) : null}
+              {pinButton}
+              <span className="flex-1" />
               {sortable?.isDragging ? (
                 dragDestination
               ) : (

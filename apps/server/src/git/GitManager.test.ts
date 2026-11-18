@@ -264,6 +264,16 @@ function configureVisibleRemoteUrlWithLocalRewrite(
   });
 }
 
+/** The checkout guard compares raw remote URLs, so a PR test's origin needs its PR's repository. */
+const addOriginWithVisibleUrl = Effect.fnUntraced(function* (
+  cwd: string,
+  localRemotePath: string,
+  visibleUrl: string,
+) {
+  yield* runGit(cwd, ["remote", "add", "origin", localRemotePath]);
+  yield* configureVisibleRemoteUrlWithLocalRewrite(cwd, "origin", visibleUrl, localRemotePath);
+});
+
 function createTextGeneration(
   overrides: Partial<FakeGitTextGeneration> = {},
 ): TextGeneration.TextGeneration["Service"] {
@@ -3914,7 +3924,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     const repoDir = yield* makeTempDir("t3code-git-manager-");
     yield* initRepo(repoDir);
     const remoteDir = yield* createBareRemote();
-    yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+    yield* addOriginWithVisibleUrl(
+      repoDir,
+      remoteDir,
+      "https://github.com/pingdotgg/codething-mvp.git",
+    );
     yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
     yield* runGit(repoDir, ["checkout", "-b", "feature/pr-safe"]);
     NodeFS.writeFileSync(NodePath.join(repoDir, "pr.txt"), "first\n");
@@ -3942,8 +3956,175 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         syncCheckoutWithPullHead,
       },
     });
-    return { repoDir, manager, providerCalls, firstCommit, pullHead };
+    return { repoDir, manager, providerCalls, firstCommit, pullHead, remoteDir };
   });
+
+  const workspaceGitState = Effect.fnUntraced(function* (repoDir: string) {
+    return {
+      remotes: (yield* runGit(repoDir, ["remote", "-v"])).stdout,
+      refs: (yield* runGit(repoDir, ["for-each-ref"])).stdout,
+      worktrees: (yield* runGit(repoDir, ["worktree", "list"])).stdout,
+      branch: (yield* runGit(repoDir, ["branch", "--show-current"])).stdout,
+      config: NodeFS.readFileSync(NodePath.join(repoDir, ".git", "config"), "utf8"),
+    };
+  });
+
+  it.effect.each([
+    { mode: "worktree", head: "seniorverse/clients", isCrossRepository: false },
+    { mode: "local", head: "seniorverse/clients", isCrossRepository: false },
+    { mode: "worktree", head: "someone/clients", isCrossRepository: true },
+  ] as const)(
+    "refuses another repository's PR and leaves the workspace unchanged ($mode, head $head)",
+    ({ mode, head, isCrossRepository }) =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const frameworkDir = yield* createBareRemote();
+        const clientsDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", frameworkDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+        yield* runGit(repoDir, ["push", clientsDir, "main:feature/clients-work"]);
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "origin",
+          "git@github.com:seniorverse/framework.git",
+          frameworkDir,
+        );
+        const before = yield* workspaceGitState(repoDir);
+        const { manager, providerCalls } = yield* makeManager({
+          providerScenario: {
+            pullRequest: {
+              number: 327,
+              title: "Clients PR",
+              url: "https://github.com/seniorverse/clients/pull/327",
+              baseRefName: "main",
+              headRefName: "feature/clients-work",
+              state: "open",
+              isCrossRepository,
+              headRepositoryNameWithOwner: head,
+              headRepositoryOwnerLogin: head.split("/")[0]!,
+            },
+            repositoryCloneUrls: { [head]: { url: clientsDir, sshUrl: clientsDir } },
+          },
+        });
+
+        const error = yield* preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "https://github.com/seniorverse/clients/pull/327",
+          mode,
+        }).pipe(Effect.flip);
+
+        expect(error).toMatchObject({
+          _tag: "GitManagerError",
+          detail:
+            "`seniorverse/clients#327` belongs to `seniorverse/clients`, but this project's remotes point at `seniorverse/framework`. Open it from a `seniorverse/clients` project.",
+        });
+        expect(yield* workspaceGitState(repoDir)).toEqual(before);
+        expect(providerCalls.some((call) => call.operation === "checkoutChangeRequest")).toBe(
+          false,
+        );
+      }),
+  );
+
+  it.effect.each([
+    {
+      name: "a remote other than origin",
+      remotes: {
+        origin: "https://github.com/someone/codething-mvp.git",
+        upstream: "https://github.com/pingdotgg/codething-mvp.git",
+      },
+    },
+    {
+      name: "an SSH remote with different letter case",
+      remotes: { origin: "git@github.com:PingDotGG/Codething-MVP.git" },
+    },
+    {
+      name: "an SSH alias host",
+      remotes: { origin: "git@github-ford:pingdotgg/codething-mvp.git" },
+    },
+  ])("checks out a PR whose base matches $name", ({ remotes }) =>
+    Effect.gen(function* () {
+      const { repoDir, manager, remoteDir } = yield* setUpLocalCheckoutPullRequest();
+      yield* runGit(repoDir, ["checkout", "main"]);
+      yield* runGit(repoDir, ["config", "--unset-all", "remote.origin.url"]);
+      for (const [name, url] of Object.entries(remotes)) {
+        yield* runGit(repoDir, ["config", `remote.${name}.url`, url]);
+        yield* runGit(repoDir, ["config", "--add", `url.${remoteDir}.insteadOf`, url]);
+      }
+
+      const result = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "91",
+        mode: "local",
+      });
+
+      expect(result.branch).toBe("feature/pr-safe");
+    }),
+  );
+
+  it.effect("an SSH alias host matches its own repository only", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "git@github-ford:seniorverse/clients.git",
+      ]);
+      const { manager } = yield* makeManager({
+        providerScenario: {
+          pullRequest: {
+            number: 1,
+            title: "Framework PR",
+            url: "https://github.com/seniorverse/framework/pull/1",
+            baseRefName: "main",
+            headRefName: "feature/framework-work",
+            state: "open",
+          },
+        },
+      });
+
+      const error = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "1",
+        mode: "worktree",
+      }).pipe(Effect.flip);
+
+      expect(error.message).toContain("belongs to `seniorverse/framework`");
+    }),
+  );
+
+  it.effect.each([
+    { reference: "https://github.example.com/team/repository/issues/42", refused: true },
+    { reference: "42", refused: false },
+  ])("a PR URL with no repository key: reference $reference", ({ reference, refused }) =>
+    Effect.gen(function* () {
+      const { repoDir, remoteDir } = yield* setUpLocalCheckoutPullRequest();
+      yield* runGit(repoDir, ["checkout", "main"]);
+      yield* runGit(repoDir, ["push", remoteDir, "feature/pr-safe:refs/pull/42/head"]);
+      const { manager } = yield* makeManager({
+        providerScenario: {
+          pullRequest: {
+            number: 42,
+            title: "Unparseable URL",
+            url: "https://github.example.com/team/repository/issues/42",
+            baseRefName: "main",
+            headRefName: "feature/pr-safe",
+            state: "open",
+          },
+        },
+      });
+
+      const outcome = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference,
+        mode: "local",
+      }).pipe(Effect.result);
+
+      expect(outcome._tag === "Failure").toBe(refused);
+    }),
+  );
 
   it.effect.each(["switch", "create-and-switch", "feature-branch", "commit"] as const)(
     "local PR checkout excludes a concurrent %s from a nested project with an alternate root",
@@ -4228,7 +4409,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
         yield* initRepo(repoDir);
         const remoteDir = yield* createBareRemote();
-        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* addOriginWithVisibleUrl(
+          repoDir,
+          remoteDir,
+          "https://github.com/pingdotgg/codething-mvp.git",
+        );
         yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
         yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local-upstream"]);
         NodeFS.writeFileSync(NodePath.join(repoDir, "upstream.txt"), "upstream\n");
@@ -4286,7 +4471,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
         yield* initRepo(repoDir);
         const remoteDir = yield* createBareRemote();
-        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* addOriginWithVisibleUrl(
+          repoDir,
+          remoteDir,
+          "https://github.com/pingdotgg/codething-mvp.git",
+        );
         yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
         yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local-no-head-repo"]);
         NodeFS.writeFileSync(NodePath.join(repoDir, "no-head-repo.txt"), "upstream\n");
@@ -4431,7 +4620,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        originDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-fork"]);
@@ -4492,7 +4685,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-reused-stale"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "stale.txt"), "stale\n");
@@ -4547,7 +4744,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-force-pushed"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "force-pushed.txt"), "first\n");
@@ -4621,7 +4822,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local-commit"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "local-commit.txt"), "first\n");
@@ -4699,7 +4904,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-dirty-worktree"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "dirty.txt"), "first\n");
@@ -4783,7 +4992,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
         yield* initRepo(repoDir);
         const remoteDir = yield* createBareRemote();
-        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* addOriginWithVisibleUrl(
+          repoDir,
+          remoteDir,
+          "https://github.com/pingdotgg/codething-mvp.git",
+        );
         yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
         const forkDir = isCrossRepository ? yield* createBareRemote() : null;
         if (forkDir) {
@@ -4856,7 +5069,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-ref-only"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "ref-only.txt"), "ref only\n");
@@ -4917,7 +5134,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://gitlab.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/mr-ref-only"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "mr.txt"), "merge request\n");
@@ -4961,7 +5182,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        originDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
       yield* runGit(repoDir, ["checkout", "-b", "fork-main-collision"]);
@@ -5064,7 +5289,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        originDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-reused-fork"]);
@@ -5134,7 +5363,11 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* addOriginWithVisibleUrl(
+        repoDir,
+        remoteDir,
+        "https://github.com/pingdotgg/codething-mvp.git",
+      );
       yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-setup-failure"]);
       NodeFS.writeFileSync(NodePath.join(repoDir, "setup-failure.txt"), "setup failure\n");
@@ -5185,6 +5418,12 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/pingdotgg/codething-mvp.git",
+      ]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-root-only"]);
 
       const { manager } = yield* makeManager({

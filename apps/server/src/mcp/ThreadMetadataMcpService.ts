@@ -79,6 +79,13 @@ function metadataCommand(input: {
         threadId: input.threadId,
         regenerateTitle: true,
       };
+    case "set_folders":
+      return {
+        type: "thread.metadata.update",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        folders: [...new Set(input.update.folders!)],
+      };
   }
 }
 

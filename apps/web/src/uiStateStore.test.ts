@@ -20,6 +20,10 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKeys: [],
+    legacyFavoriteThreadKeys: [],
+    sidebarPinnedOnly: false,
+    sidebarStatusTab: "all",
+    sidebarEnvironmentScopeId: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -126,6 +130,10 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
+      legacyFavoriteThreadKeys: [],
+      sidebarPinnedOnly: false,
+      sidebarStatusTab: "all",
+      sidebarEnvironmentScopeId: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -231,7 +239,9 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
+      sidebarPinnedOnly: false,
       sidebarProjectScopeKey: null,
+      sidebarEnvironmentScopeId: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -246,15 +256,29 @@ describe("uiStateStore persistence", () => {
     });
   });
 
-  it("restores the sidebar project scope across reloads", () => {
+  it("restores the sidebar project and environment scope across reloads", () => {
     const keys = ["github.com/pingdotgg/t3code", "github.com/pingdotgg/uploadthing"];
-    persistState(makeUiState({ sidebarProjectScopeKeys: keys }));
+    persistState(
+      makeUiState({
+        sidebarProjectScopeKeys: keys,
+        sidebarEnvironmentScopeId: "environment-air",
+        legacyFavoriteThreadKeys: ["environment-air:thread-1"],
+        sidebarPinnedOnly: true,
+      }),
+    );
 
     const persisted = JSON.parse(
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
 
-    expect(parsePersistedState(persisted).sidebarProjectScopeKeys).toEqual(keys);
+    expect(parsePersistedState(persisted)).toMatchObject({
+      sidebarProjectScopeKeys: keys,
+      legacyFavoriteThreadKeys: ["environment-air:thread-1"],
+      sidebarPinnedOnly: true,
+      sidebarEnvironmentScopeId: "environment-air",
+    });
+    // The favorites filter's saved state carries over to the pinned filter.
+    expect(parsePersistedState({ sidebarFavoritesOnly: true }).sidebarPinnedOnly).toBe(true);
   });
 
   it("keeps a single-project scope readable by older clients", () => {

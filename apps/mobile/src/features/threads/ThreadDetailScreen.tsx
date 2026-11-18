@@ -169,6 +169,9 @@ import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
+import { SpecQuestionsCard } from "./SpecQuestionsCard";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { useThreadSpec } from "../../state/specQuestions";
 import { ProviderSubagentBar } from "./ProviderSubagentBar";
 import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import {
@@ -779,6 +782,11 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     readonly collapsed: boolean;
   } | null>(null);
   const activeUserInputRequestId = props.activePendingUserInput?.requestId ?? null;
+  const spec = useThreadSpec(props.selectedThread);
+  const specOpenCount = spec?.openQuestions.length ?? 0;
+  const [specQuestionsTab, setSpecQuestionsTab] = useState<"agent" | "spec">("agent");
+  const showSpecQuestionsTabs = specOpenCount > 0 && activeUserInputRequestId !== null;
+  const specQuestionsTabSelected = showSpecQuestionsTabs && specQuestionsTab === "spec";
   const composerSlotHidden =
     activeUserInputRequestId !== null || props.creationState?.kind === "failed";
   const pendingMessageEditBlocked =
@@ -870,6 +878,14 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
       keyboardHeight: keyboardStickyEnabled ? -keyboardTranslation.value : 0,
       navigationHeaderHeight,
       composerOverlapHeight: composerBottomInset,
+    }),
+  );
+  const specQuestionsMaxHeight = useDerivedValue(() =>
+    derivePendingUserInputMaxHeight({
+      windowHeight: screenAreaHeight,
+      keyboardHeight: keyboardStickyEnabled ? -keyboardTranslation.value : 0,
+      navigationHeaderHeight,
+      composerOverlapHeight: composerSlotHidden ? composerBottomInset : composerOverlapHeight,
     }),
   );
   // The usage panel stacks with the composer and any approval card, so it gets
@@ -969,7 +985,8 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     [floatingCoverageTarget],
   );
   // Android measures its expanded card in-flow; only iOS needs extra overlay coverage.
-  const userInputCoverageApplies = Platform.OS === "ios" && activeUserInputRequestId !== null;
+  const userInputCoverageApplies =
+    Platform.OS === "ios" && activeUserInputRequestId !== null && !specQuestionsTabSelected;
   const combinedContentInsetEndAdjustment = useSharedValue(
     Math.max(0, estimatedOverlayHeight - nativeInsetOvercount),
   );
@@ -1492,7 +1509,9 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                       />
                     </Animated.View>
                   ) : null}
-                  {props.activePendingApproval || props.activePendingUserInput ? (
+                  {props.activePendingApproval ||
+                  props.activePendingUserInput ||
+                  (spec !== null && specOpenCount > 0) ? (
                     <Animated.View
                       className="shrink-0 gap-3 px-4 pb-3"
                       style={
@@ -1511,7 +1530,35 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                           onRespond={props.onRespondToApproval}
                         />
                       ) : null}
-                      {props.activePendingUserInput ? (
+                      {showSpecQuestionsTabs ? (
+                        <SegmentedControl
+                          size="compact"
+                          role="tab"
+                          options={[
+                            { value: "agent", label: "Agent question" },
+                            { value: "spec", label: `Spec questions · ${specOpenCount}` },
+                          ]}
+                          selected={specQuestionsTab}
+                          onSelect={setSpecQuestionsTab}
+                        />
+                      ) : null}
+                      {spec !== null && specOpenCount > 0 ? (
+                        <View
+                          style={
+                            showSpecQuestionsTabs && !specQuestionsTabSelected
+                              ? { display: "none" }
+                              : undefined
+                          }
+                        >
+                          <SpecQuestionsCard
+                            thread={props.selectedThread}
+                            spec={spec}
+                            canOperateThread={props.canOperateThread}
+                            maxHeight={specQuestionsMaxHeight}
+                          />
+                        </View>
+                      ) : null}
+                      {props.activePendingUserInput && !specQuestionsTabSelected ? (
                         <PendingUserInputCard
                           environmentId={props.environmentId}
                           canOperateThread={props.canOperateThread}

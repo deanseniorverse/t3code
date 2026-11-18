@@ -38,7 +38,6 @@ import {
   resolveThreadListV2SnoozePresets,
   resolveThreadListV2Status,
   resolveThreadListV2WokeAt,
-  sortThreadsForListV2,
   threadListV2ListItemsAreEqual,
   threadHasUnseenCompletion,
   type ThreadListV2ListItem,
@@ -216,14 +215,136 @@ describe("search lists ranked matches", () => {
   });
 });
 
-describe("sortThreadsForListV2", () => {
-  it("honors a saved active order and leaves new threads above it", () => {
-    const sorted = sortThreadsForListV2([
-      { id: "newer-arranged", createdAt: "2026-06-01T12:00:00.000Z", activeOrderKey: "t" },
-      { id: "older-arranged", createdAt: "2026-06-01T08:00:00.000Z", activeOrderKey: "f" },
-      { id: "new", createdAt: "2026-06-01T13:00:00.000Z" },
+describe("active section status order", () => {
+  it("lists every status newest first, read threads by their latest activity", () => {
+    const at = (hour: number) => `2026-06-01T${String(hour).padStart(2, "0")}:00:00.000Z`;
+    const failed = (lastErrorClass?: "usage_limit") => ({
+      status: "failed" as const,
+      activeRunId: null,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      providerName: "Codex",
+      lastError: "boom",
+      ...(lastErrorClass ? { lastErrorClass } : {}),
+      updatedAt: at(0),
+    });
+    const thread = (
+      id: string,
+      hour: number,
+      overrides: Partial<EnvironmentThreadShell> = {},
+    ): EnvironmentThreadShell =>
+      makeThread({
+        id: ThreadId.make(id),
+        title: id,
+        createdAt: at(0),
+        lastVisitedAt: at(0),
+        activeOrderKey: id === "done-new" ? "a" : null,
+        latestRun: {
+          runId: RunId.make(`run-${id}`),
+          status: "completed",
+          requestedAt: at(hour),
+          startedAt: at(hour),
+          completedAt: at(hour),
+          assistantMessageId: null,
+        },
+        ...overrides,
+      });
+    const layout = buildThreadListV2Items({
+      threads: [
+        thread("read-recent", 1, { lastVisitedAt: at(20), latestUserMessageAt: at(13) }),
+        thread("done-new", 12),
+        thread("limited", 11, { runtime: failed("usage_limit") }),
+        thread("read-old", 1, { lastVisitedAt: at(18), latestUserMessageAt: at(2) }),
+        thread("input-new", 9, { hasPendingUserInput: true }),
+        thread("failed", 8, { runtime: failed() }),
+        thread("done-old", 6),
+        thread("approval-old", 5, { hasPendingApprovals: true }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(layout.items.map((item) => item.thread.id)).toEqual([
+      "read-recent",
+      "done-new",
+      "limited",
+      "input-new",
+      "failed",
+      "done-old",
+      "approval-old",
+      "read-old",
     ]);
-    expect(sorted.map((thread) => thread.id)).toEqual(["new", "older-arranged", "newer-arranged"]);
+  });
+});
+
+describe("status tabs", () => {
+  const at = (hour: number) => `2026-06-01T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  const threads = [
+    makeThread({ id: ThreadId.make("input"), title: "input", hasPendingUserInput: true }),
+    makeThread({
+      id: ThreadId.make("pinned-input"),
+      title: "pinned-input",
+      pinnedAt: at(1),
+      hasPendingApprovals: true,
+    }),
+    makeThread({ id: ThreadId.make("read"), title: "read", lastVisitedAt: at(2) }),
+    makeThread({
+      id: ThreadId.make("settled"),
+      title: "settled",
+      settledOverride: "settled",
+      settledAt: at(3),
+    }),
+  ];
+  const build = (statusTab: "all" | "input" | "failed" | "settled") => {
+    const layout = buildThreadListV2Items({
+      threads,
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+      isWorking: () => false,
+      settledShelfExpanded: false,
+      unloadedSettledCount: 2,
+      statusTab,
+    });
+    return { layout, ids: layout.items.map((item) => item.thread.id) };
+  };
+
+  it("counts every tab and keeps the shelf headers on All", () => {
+    const { layout, ids } = build("all");
+    expect(layout.statusTabCounts).toEqual({
+      all: 6,
+      input: 2,
+      failed: 0,
+      done: 0,
+      read: 1,
+      working: 0,
+      waiting: 0,
+      snoozed: 0,
+      settled: 3,
+    });
+    expect(ids).toEqual(["pinned-input", "input", "read"]);
+    expect(layout.settledShelfHeaderIndex).toBe(3);
+  });
+
+  it("lists one tab's threads, pinned ones included", () => {
+    const { layout, ids } = build("input");
+    expect(layout.statusTab).toBe("input");
+    expect(ids).toEqual(["pinned-input", "input"]);
+    expect(layout.settledShelfHeaderIndex).toBeNull();
+    expect(layout.hiddenSettledCount).toBe(0);
+  });
+
+  it("lists a shelf tab open and flat, whatever the shelf's own toggle says", () => {
+    const { layout, ids } = build("settled");
+    expect(ids).toEqual(["settled"]);
+    expect(layout.settledShelfHeaderIndex).toBeNull();
+    expect(layout.hiddenSettledCount).toBe(2);
+  });
+
+  it("returns to All when the chosen tab has no threads", () => {
+    const { layout, ids } = build("failed");
+    expect(layout.statusTab).toBe("all");
+    expect(ids).toEqual(["pinned-input", "input", "read"]);
   });
 });
 
@@ -883,30 +1004,27 @@ describe("pending mobile thread moves", () => {
     }).items.map((item) => item.thread.id);
   }
 
-  it.each(["active", "pinned"] as const)(
-    "holds %s order through every intermediate key upsert",
-    (section) => {
-      const { rows, assignments, pending, update } = fixture(section);
-      let current = rows;
-      let hold: PendingThreadOrder | null = pending;
-      const desired = pending.orderedIds.map((id) => id.split(":")[1]);
+  it("holds pinned order through every intermediate key upsert", () => {
+    const { rows, assignments, pending, update } = fixture("pinned");
+    let current = rows;
+    let hold: PendingThreadOrder | null = pending;
+    const desired = pending.orderedIds.map((id) => id.split(":")[1]);
+    expect(layout(current, hold)).toEqual(desired);
+    for (const assignment of assignments) {
+      current = update(current, assignment);
+      hold = reconcilePendingThreadOrder(
+        hold!,
+        getThreadListV2OrderedSection({ threads: current, section: "pinned", now: NOW }),
+      );
+      expect(hold).not.toBeNull();
       expect(layout(current, hold)).toEqual(desired);
-      for (const assignment of assignments) {
-        current = update(current, assignment);
-        hold = reconcilePendingThreadOrder(
-          hold!,
-          getThreadListV2OrderedSection({ threads: current, section, now: NOW }),
-        );
-        expect(hold).not.toBeNull();
-        expect(layout(current, hold)).toEqual(desired);
-      }
-      expect(reconcilePendingThreadOrder({ ...hold!, commandsComplete: true }, current)).toBeNull();
-      expect(layout(current, null)).toEqual(desired);
-    },
-  );
+    }
+    expect(reconcilePendingThreadOrder({ ...hold!, commandsComplete: true }, current)).toBeNull();
+    expect(layout(current, null)).toEqual(desired);
+  });
 
   it("keeps the action guard pending when receipts precede canonical shells", () => {
-    const { rows, assignments, pending, update } = fixture();
+    const { rows, assignments, pending, update } = fixture("pinned");
     let hold: PendingThreadOrder | null = { ...pending, commandsComplete: true };
     let current = rows;
     expect(reconcilePendingThreadOrder(hold, current)).toBe(hold);
@@ -1636,7 +1754,6 @@ describe("Working section beta", () => {
         threads: [inactive],
         workingShelfExpanded: true,
         isWorking: tracker.isWorking,
-        inboxReturnAt: tracker.returnedAt,
       });
     try {
       tracker.observe([working]);
@@ -1651,14 +1768,6 @@ describe("Working section beta", () => {
       tracker.observe(null);
       vi.useRealTimers();
     }
-  });
-
-  it("orders the inbox by the latest return this device observed", () => {
-    const layout = build({
-      inboxReturnAt: (thread) =>
-        thread.id === "finished-early" ? Date.parse("2026-06-01T04:00:00.000Z") : undefined,
-    });
-    expect(ids(layout).slice(1)).toEqual(["finished-early", "finished-late", "asks-approval"]);
   });
 
   it("places the shelf after queued tasks and before snoozed and settled threads", () => {

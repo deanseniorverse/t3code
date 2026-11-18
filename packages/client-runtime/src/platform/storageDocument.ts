@@ -17,6 +17,12 @@ export const StoredConnectionCredential = Schema.Struct({
 });
 export type StoredConnectionCredential = typeof StoredConnectionCredential.Type;
 
+export const StoredEnvironmentNickname = Schema.Struct({
+  environmentId: EnvironmentId,
+  nickname: Schema.String,
+});
+export type StoredEnvironmentNickname = typeof StoredEnvironmentNickname.Type;
+
 export const ConnectionCatalogDocument = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   targets: Schema.Array(PersistedConnectionTarget),
@@ -29,6 +35,10 @@ export const ConnectionCatalogDocument = Schema.Struct({
   disabledEnvironmentIds: Schema.Array(EnvironmentId).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
   ),
+  // Names set on this device, including for platform environments that have no saved targets.
+  environmentNicknames: Schema.Array(StoredEnvironmentNickname).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 export type ConnectionCatalogDocument = typeof ConnectionCatalogDocument.Type;
 
@@ -39,6 +49,7 @@ export const EMPTY_CONNECTION_CATALOG_DOCUMENT: ConnectionCatalogDocument = Obje
   credentials: [],
   remoteDpopTokens: [],
   disabledEnvironmentIds: [],
+  environmentNicknames: [],
 });
 
 export function replaceCatalogValue<A>(
@@ -192,6 +203,23 @@ export function setConnectionEnabledInCatalog(
   return {
     ...document,
     disabledEnvironmentIds: registered && !enabled ? [...without, environmentId] : without,
+  };
+}
+
+/** A null nickname clears it. */
+export function setEnvironmentNicknameInCatalog(
+  document: ConnectionCatalogDocument,
+  environmentId: EnvironmentId,
+  nickname: string | null,
+): ConnectionCatalogDocument {
+  const without = removeCatalogValue(
+    document.environmentNicknames,
+    (value) => value.environmentId,
+    environmentId,
+  );
+  return {
+    ...document,
+    environmentNicknames: nickname === null ? without : [...without, { environmentId, nickname }],
   };
 }
 

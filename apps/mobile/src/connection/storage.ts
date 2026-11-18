@@ -3,6 +3,7 @@ import {
   registerConnectionInCatalog,
   removeConnectionFromCatalog,
   setConnectionEnabledInCatalog,
+  setEnvironmentNicknameInCatalog,
   setRoutesInCatalog,
   removeCatalogValue,
   replaceCatalogValue,
@@ -30,7 +31,9 @@ function targetPersistenceError(
     | "register-connection"
     | "set-connection-routes"
     | "remove-connection"
-    | "set-connection-enabled",
+    | "set-connection-enabled"
+    | "list-environment-nicknames"
+    | "set-environment-nickname",
   error: ConnectionTransientError,
 ) {
   return new Persistence.ConnectionPersistenceError({
@@ -57,6 +60,10 @@ export const layer = Layer.effectContext(
         Effect.map((document) => document.disabledEnvironmentIds),
         Effect.mapError((error) => targetPersistenceError("list-disabled-targets", error)),
       ),
+      listNicknames: catalog.read.pipe(
+        Effect.map((document) => document.environmentNicknames),
+        Effect.mapError((error) => targetPersistenceError("list-environment-nicknames", error)),
+      ),
     });
     const registrationStore = Persistence.ConnectionRegistrationStore.of({
       register: (registration, routes) =>
@@ -76,6 +83,12 @@ export const layer = Layer.effectContext(
           .update((document) => setConnectionEnabledInCatalog(document, environmentId, enabled))
           .pipe(
             Effect.mapError((error) => targetPersistenceError("set-connection-enabled", error)),
+          ),
+      setNickname: (environmentId, nickname) =>
+        catalog
+          .update((document) => setEnvironmentNicknameInCatalog(document, environmentId, nickname))
+          .pipe(
+            Effect.mapError((error) => targetPersistenceError("set-environment-nickname", error)),
           ),
     });
     const profileStore = ProfileStore.make({

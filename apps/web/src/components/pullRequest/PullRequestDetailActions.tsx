@@ -82,6 +82,7 @@ export function PullRequestCheckoutMenu({
   actingEnvironmentId,
   onActingEnvironmentChange,
   term,
+  unavailableReason,
 }: {
   handoff: string | null;
   checkoutRoot: string | null;
@@ -93,34 +94,45 @@ export function PullRequestCheckoutMenu({
   onActingEnvironmentChange: (environmentId: EnvironmentId) => void;
   /** The host's word for a change request, as in "pull request". */
   term: string;
+  /** Why the acting project can't check this out; other machines may still be picked. */
+  unavailableReason: string | null;
 }) {
   return (
     <Menu>
       <Tooltip>
         <TooltipTrigger
           render={
-            <MenuTrigger
-              disabled={handoff !== null || checkoutRoot === null}
-              render={
-                <Button
-                  size="xs"
-                  variant="outline"
-                  aria-label={handoff?.startsWith("checkout") ? "Checking out..." : "Check out"}
-                >
-                  <GitBranchIcon aria-hidden className="size-3.5" />
-                  <span className="@max-[35rem]/pr-header:hidden">
-                    {handoff?.startsWith("checkout") ? "Checking out..." : "Check out"}
-                  </span>
-                  <ChevronDownIcon aria-hidden className="size-3.5 text-muted-foreground" />
-                </Button>
-              }
-            />
+            <span className="inline-flex shrink-0">
+              <MenuTrigger
+                disabled={
+                  handoff !== null ||
+                  checkoutRoot === null ||
+                  (unavailableReason !== null && pickableEnvironments.length === 0)
+                }
+                render={
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    aria-label={handoff?.startsWith("checkout") ? "Checking out..." : "Check out"}
+                  >
+                    <GitBranchIcon aria-hidden className="size-3.5" />
+                    <span className="@max-[35rem]/pr-header:hidden">
+                      {handoff?.startsWith("checkout") ? "Checking out..." : "Check out"}
+                    </span>
+                    <ChevronDownIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                  </Button>
+                }
+              />
+            </span>
           }
         />
-        <TooltipPopup>Check out this {term}</TooltipPopup>
+        <TooltipPopup>{unavailableReason ?? `Check out this ${term}`}</TooltipPopup>
       </Tooltip>
       <MenuPopup align="end" side="bottom">
-        <MenuItem disabled={!canPrepareWorktree} onClick={() => onCheckout("worktree")}>
+        <MenuItem
+          disabled={!canPrepareWorktree || unavailableReason !== null}
+          onClick={() => onCheckout("worktree")}
+        >
           <GitBranchIcon className="mt-1 size-3.5 shrink-0 self-start" />
           <span className="flex min-w-0 flex-col">
             <span>In a separate worktree</span>
@@ -129,7 +141,10 @@ export function PullRequestCheckoutMenu({
             </span>
           </span>
         </MenuItem>
-        <MenuItem disabled={!canCheckoutHere} onClick={() => onCheckout("local")}>
+        <MenuItem
+          disabled={!canCheckoutHere || unavailableReason !== null}
+          onClick={() => onCheckout("local")}
+        >
           <FolderGit2Icon className="mt-1 size-3.5 shrink-0 self-start" />
           <span className="flex min-w-0 flex-col">
             <span>In this repository</span>
@@ -154,10 +169,12 @@ export function PullRequestCheckoutMenu({
 export function PullRequestResolveConflictsButton({
   handoff,
   unavailable,
+  unavailableReason,
   onResolve,
 }: {
   handoff: string | null;
   unavailable: boolean;
+  unavailableReason: string | null;
   onResolve: () => void;
 }) {
   return (
@@ -181,7 +198,7 @@ export function PullRequestResolveConflictsButton({
         }
       />
       <TooltipPopup side="top">
-        {handoff === "conflicts" ? "Preparing..." : "Resolve conflicts"}
+        {handoff === "conflicts" ? "Preparing..." : (unavailableReason ?? "Resolve conflicts")}
       </TooltipPopup>
     </Tooltip>
   );

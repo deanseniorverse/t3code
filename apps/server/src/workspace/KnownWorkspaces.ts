@@ -91,6 +91,19 @@ export const make = Effect.gen(function* () {
         if (within(yield* resolveRoot(project.workspaceRoot))) return true;
       }
 
+      // Attached folders carry the same trust as project roots; both are set by the same clients.
+      const folders = yield* sql<{ readonly folder: string }>`
+        SELECT DISTINCT folder.value AS "folder"
+        FROM orchestration_v2_projection_threads, json_each(payload_json, '$.folders') AS folder
+        WHERE deleted_at IS NULL
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.orElseSucceed(() => []),
+      );
+      for (const { folder } of folders) {
+        if (path.isAbsolute(folder) && within(yield* resolveRoot(folder))) return true;
+      }
+
       const threads = yield* sql<{ readonly worktreePath: string; readonly projectId: string }>`
         SELECT DISTINCT
           json_extract(payload_json, '$.worktreePath') AS "worktreePath",

@@ -111,6 +111,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
+import { planFavoritePinMigration } from "../favoritePinMigration";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -161,7 +162,6 @@ import {
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
@@ -194,9 +194,6 @@ import {
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
   sidebarThreadKeyAtY,
-  sortInboxThreadsByReturn,
-  sortPinnedThreadsForSidebar,
-  sortThreadsForSidebar,
   sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   useThreadJumpHintsVisible,
@@ -204,6 +201,12 @@ import {
   type SidebarSection,
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";
+import { useOpenSpecThreads } from "../specQuestionsState";
+import {
+  applySidebarStatusTab,
+  type SidebarStatusTab,
+  sortThreadsByStatus,
+} from "./sidebarStatusSort";
 import {
   createSidebarCollisionDetection,
   createSidebarSortingStrategy,
@@ -242,6 +245,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarStatusTabs, SidebarThreadFilters } from "./sidebar/SidebarThreadFilters";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -341,8 +345,11 @@ interface SidebarThreadPartitionInput {
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
-  /** Boring mode: folders list active threads by the user's latest message. */
-  readonly sortActiveBySend: boolean;
+  readonly openSpecThreads: ReadonlySet<string>;
+  /** Fork-only: the sidebar's pin filter; pins sort by status and working pins join Working. */
+  readonly pinnedOnly: boolean;
+  /** Fork-only: the status tab; a group tab lists that group and hides the shelves. */
+  readonly statusTab: SidebarStatusTab;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -354,6 +361,8 @@ function threadShellKey(thread: Pick<SidebarThreadSummary, "environmentId" | "id
 }
 
 const NO_DRAGGED_ORDER: readonly string[] = [];
+// The pin filter sorts pinned threads by status, so a drag there has no order to write.
+const NO_REORDERABLE_KEYS: ReadonlySet<string> = new Set();
 const NO_DRAGGED_ORDERS: {
   readonly settledOrder: readonly string[];
   readonly activeOrder: readonly string[] | undefined;
@@ -365,6 +374,7 @@ function resolveDraggedOrders(input: {
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
+  readonly openSpecThreads: ReadonlySet<string>;
 }): typeof NO_DRAGGED_ORDERS {
   const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
   const thread = threadByKey.get(drag.activeKey);
@@ -377,9 +387,9 @@ function resolveDraggedOrders(input: {
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
+      ? sortThreadsByStatus(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
+          (candidate) => input.openSpecThreads.has(threadShellKey(candidate)),
         ).map(threadShellKey)
       : undefined,
   };
@@ -457,29 +467,53 @@ function useSidebarThreads(input: {
   const settledVisibleCount =
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
+  const openSpecThreads = useOpenSpecThreads(threads, threadShellKey);
+  const pinnedOnly = useUiStateStore((store) => store.sidebarPinnedOnly);
+  // In the store so the chat header's status chip can choose a tab.
+  const requestedStatusTab = useUiStateStore((store) => store.sidebarStatusTab);
+  const setStatusTab = useUiStateStore((store) => store.setSidebarStatusTab);
   const partition = partitionSidebarThreads({
     threads,
+    openSpecThreads,
+    pinnedOnly,
+    statusTab: requestedStatusTab,
     scopedProjectKeys,
     delegatedUnderParent,
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
-    sortActiveBySend: folderGroups !== null,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const { activeThreads, workingThreads, snoozedThreads, settledThreads } = partition;
+  const statusTab = partition.statusTab;
+  // A chosen shelf tab lists its shelf open, whatever the shelf's own toggle says.
+  const settledExpanded = settledShelfExpanded || statusTab === "settled";
+  const snoozedExpanded = snoozedShelfExpanded || statusTab === "snoozed";
+  const workingExpanded =
+    workingShelfExpanded || statusTab === "working" || statusTab === "waiting";
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
-    expanded: settledShelfExpanded,
+    expanded: settledExpanded,
     visibleCount: settledVisibleCount,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
-  const settledCount =
-    settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const unloadedSettledCount = olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const statusTabCounts = {
+    ...partition.statusTabCounts,
+    all: partition.statusTabCounts.all + unloadedSettledCount,
+    settled: partition.statusTabCounts.settled + unloadedSettledCount,
+  };
+  const settledCount = statusTab === "all" || statusTab === "settled" ? statusTabCounts.settled : 0;
+  // The chosen group emptied, so the list is back on All; a later refill must not re-filter it.
+  const settledTabEmptied = statusTab === "settled" && statusTabCounts.settled === 0;
+  const resolvedStatusTab = settledTabEmptied ? "all" : statusTab;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the tab lives in the UI store for the chat header's chip, and a store write cannot happen during render
+  useEffect(() => {
+    if (resolvedStatusTab !== requestedStatusTab) setStatusTab(resolvedStatusTab);
+  }, [resolvedStatusTab, requestedStatusTab, setStatusTab]);
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
@@ -493,13 +527,13 @@ function useSidebarThreads(input: {
     }
     return visible.length === settledThreads.length ? settledThreads : visible;
   })();
-  const renderedSettledThreads = settledShelfExpanded
+  const renderedSettledThreads = settledExpanded
     ? visibleSettledThreads
     : routeThreadOnly(visibleSettledThreads, routeRowThreadKey);
-  const visibleSnoozedThreads = snoozedShelfExpanded
+  const visibleSnoozedThreads = snoozedExpanded
     ? snoozedThreads
     : routeThreadOnly(snoozedThreads, routeRowThreadKey);
-  const visibleWorkingThreads = workingShelfExpanded
+  const visibleWorkingThreads = workingExpanded
     ? workingThreads
     : routeThreadOnly(workingThreads, routeRowThreadKey);
   const projectFolders =
@@ -523,7 +557,6 @@ function useSidebarThreads(input: {
           };
         });
   const orderedThreads = [
-    ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
       : projectFolders.flatMap((folder) => folder.threads)),
@@ -533,7 +566,6 @@ function useSidebarThreads(input: {
   ];
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
-    [pinnedThreads, "pinned"],
     [activeThreads, "active"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
@@ -545,13 +577,6 @@ function useSidebarThreads(input: {
     ...partition,
     threads,
     workingShelfEnabled,
-    searchableThreads: [
-      ...pinnedThreads,
-      ...activeThreads,
-      ...workingThreads,
-      ...snoozedThreads,
-      ...settledThreads,
-    ],
     settledVisibleCount,
     settledCount,
     olderSettledShelf,
@@ -561,11 +586,14 @@ function useSidebarThreads(input: {
         scopeKey: current.scopeKey,
         count: current.count + SETTLED_TAIL_PAGE_COUNT,
       })),
-    settledShelfExpanded,
+    openSpecThreads,
+    statusTabCounts,
+    setStatusTab,
+    settledShelfExpanded: settledExpanded,
     toggleSettledShelf: () => setSettledShelfExpanded((value) => !value),
-    snoozedShelfExpanded,
+    snoozedShelfExpanded: snoozedExpanded,
     toggleSnoozedShelf: () => setSnoozedShelfExpanded((value) => !value),
-    workingShelfExpanded,
+    workingShelfExpanded: workingExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
     projectFolders,
     toggleProjectFolder: (group: SidebarProjectSnapshot) => {
@@ -580,7 +608,8 @@ function useSidebarThreads(input: {
     settledThreadKeys: new Set(settledThreads.map(threadShellKey)),
     snoozedThreadKeys: new Set(snoozedThreads.map(threadShellKey)),
     sectionByThreadKey,
-    pinnedKeys: pinnedThreads.map(threadShellKey),
+    // Fork-only: pins have no section of their own; dragging to Pinned only pins.
+    pinnedKeys: NO_DRAGGED_ORDER,
     activeKeys: activeThreads.map(threadShellKey),
     pinnedKeysById: new Map(
       threads.map((thread) => [threadShellKey(thread), thread.pinOrderKey ?? null] as const),
@@ -591,7 +620,7 @@ function useSidebarThreads(input: {
   };
 }
 
-function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
+export function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const {
     threads,
     scopedProjectKeys,
@@ -599,12 +628,20 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
-    sortActiveBySend,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const scoped = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  // Settling clears the pin, so the pin filter keeps settled threads: its Settled shelf lists them.
+  const visible = input.pinnedOnly
+    ? scoped.filter(
+        (thread) =>
+          thread.pinnedAt != null ||
+          (thread.settledOverride === "settled" &&
+            serverConfigs.has(thread.environmentId) &&
+            !effectiveSnoozed(thread, { now: preciseNow })),
+      )
+    : scoped;
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
-  const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
   const inbox = (thread: EnvironmentThreadShell, manuallyMoved = false) =>
@@ -630,12 +667,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
         optimisticDrop.occurredAt,
         optimisticDrop.assignedKeys.get(threadKey),
       );
-      (optimisticDrop.section === "pinned"
-        ? pinned
-        : optimisticDrop.section === "settled"
-          ? settled
-          : inbox(projected, true)
-      ).push(
+      (optimisticDrop.section === "settled" ? settled : inbox(projected, true)).push(
         optimisticDrop.clearsSnooze
           ? projected
           : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
@@ -644,54 +676,67 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
         settled: configLoaded && thread.settledOverride === "settled",
-        pinned: thread.pinnedAt != null,
+        // Fork-only: a pin is a mark for the pin filter; pinned threads sort in with the rest.
+        pinned: false,
       });
-      (section === "snoozed"
-        ? snoozed
-        : section === "settled"
-          ? settled
-          : section === "pinned"
-            ? pinned
-            : inbox(thread)
-      ).push(thread);
+      (section === "snoozed" ? snoozed : section === "settled" ? settled : inbox(thread)).push(
+        thread,
+      );
     }
   }
   // A loaded config gates dragging only; the sort must not depend on it, so web and mobile agree.
-  const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-  const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
-    : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
+  const sortedActive = sortThreadsByStatus(active, (thread) =>
+    input.openSpecThreads.has(threadShellKey(thread)),
+  );
+  const orderedActive =
+    optimisticDrop?.section !== "active" || optimisticDrop.order === null
+      ? sortedActive
+      : orderItemsByPreferredIds({
+          items: sortedActive,
+          preferredIds: optimisticDrop.order,
+          getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        });
+  const sortedWorking = sortWorkingThreadsBySend(working);
+  const sortedSnoozed = snoozed.toSorted(
+    (left, right) =>
+      firstValidTimestampMs(left.snoozedUntil ?? null) -
+      firstValidTimestampMs(right.snoozedUntil ?? null),
+  );
+  const sortedSettled = sortSettledThreads(settled);
+  const status = applySidebarStatusTab(
+    {
+      pinned: [],
+      active: orderedActive,
+      working: sortedWorking,
+      snoozed: sortedSnoozed,
+      settled: sortedSettled,
+    },
+    input.statusTab,
+    (thread) => input.openSpecThreads.has(threadShellKey(thread)),
+  );
   return {
-    pinnedThreads:
-      optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
-        ? sortedPinned
-        : orderItemsByPreferredIds({
-            items: sortedPinned,
-            preferredIds: optimisticDrop.order,
-            getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          }),
+    statusTab: status.tab,
+    statusTabCounts: status.counts,
     draggableThreadKeys: draggable,
     activeReorderableThreadKeys: activeReorderable,
-    activeThreads:
-      optimisticDrop?.section !== "active" || optimisticDrop.order === null
-        ? sortedActive
-        : orderItemsByPreferredIds({
-            items: sortedActive,
-            preferredIds: optimisticDrop.order,
-            getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          }),
-    workingThreads: sortWorkingThreadsBySend(working),
-    snoozedThreads: snoozed.toSorted(
-      (left, right) =>
-        firstValidTimestampMs(left.snoozedUntil ?? null) -
-        firstValidTimestampMs(right.snoozedUntil ?? null),
-    ),
-    settledThreads: sortSettledThreads(settled),
+    activeThreads: status.active,
+    workingThreads: status.working,
+    snoozedThreads: status.snoozed,
+    settledThreads: status.settled,
+    // Search covers every thread, whichever status tab is chosen.
+    searchableThreads: [...orderedActive, ...sortedWorking, ...sortedSnoozed, ...sortedSettled],
     visibleThreads: visible,
     snoozeNow: preciseNow,
   };
+}
+
+function intersectSidebarScopeKeys(
+  left: ReadonlySet<string> | null,
+  right: ReadonlySet<string> | null,
+): ReadonlySet<string> | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return new Set([...left].filter((key) => right.has(key)));
 }
 
 /** The sidebar's scope per environment: the scoped projects there, or every project. */
@@ -985,6 +1030,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const persistedEnvironmentScopeId = useUiStateStore((store) => store.sidebarEnvironmentScopeId);
+  const setPersistedEnvironmentScopeId = useUiStateStore(
+    (store) => store.setSidebarEnvironmentScopeId,
+  );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -1069,6 +1118,42 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  const environmentScopeOptions = [...environmentLabelById].map(([environmentId, label]) => ({
+    environmentId,
+    label,
+    machine: environmentMachineById.get(environmentId) ?? ("server" as const),
+  }));
+  const chosenEnvironmentScopeId =
+    persistedEnvironmentScopeId !== null &&
+    environmentLabelById.has(persistedEnvironmentScopeId as EnvironmentId)
+      ? (persistedEnvironmentScopeId as EnvironmentId)
+      : null;
+  // Like the iPhone, a project the new environment lacks drops out of the scope.
+  const setEnvironmentScopeId = (environmentId: EnvironmentId | null) => {
+    clearSelection();
+    setPersistedEnvironmentScopeId(environmentId);
+    if (environmentId === null) return;
+    const kept = persistedProjectScopeKeys.filter((key) =>
+      projectGroups
+        .find((project) => project.projectKey === key)
+        ?.memberProjectRefs.some((projectRef) => projectRef.environmentId === environmentId),
+    );
+    if (kept.length !== persistedProjectScopeKeys.length) setPersistedProjectScopeKeys(kept);
+  };
+  const chosenScopeKeys = intersectSidebarScopeKeys(
+    chosenScopeProjectKeys,
+    chosenEnvironmentScopeId === null
+      ? null
+      : new Set(
+          projectGroups.flatMap((project) =>
+            project.memberProjectRefs.flatMap((projectRef) =>
+              projectRef.environmentId === chosenEnvironmentScopeId
+                ? [`${projectRef.environmentId}:${projectRef.projectId}`]
+                : [],
+            ),
+          ),
+        ),
+  );
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -1093,7 +1178,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reveal: routeReveal,
     routeKey: routeRowThreadKey,
     isSearching: isSearchingThreads,
-    scopedProjectKeys: chosenScopeProjectKeys,
+    scopedProjectKeys: chosenScopeKeys,
     delegatedUnderParent,
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
@@ -1114,38 +1199,53 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (!revealWidensScope) return;
     clearSelection();
     setPersistedProjectScopeKeys([]);
-  }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
+    setPersistedEnvironmentScopeId(null);
+  }, [
+    clearSelection,
+    revealWidensScope,
+    setPersistedProjectScopeKeys,
+    setPersistedEnvironmentScopeId,
+  ]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
-  const scratchMachineLabelFor = (
-    thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
-  ) => {
-    if (!showProjectEnvironments) return null;
-    const project = projectByKey.get(`${thread.environmentId}:${thread.projectId}`);
-    if (
-      !project ||
-      !isScratchProject(project, serverConfigs.get(thread.environmentId)?.scratchWorkspaceRoot)
-    ) {
-      return null;
-    }
-    return environmentLabelById.get(thread.environmentId) ?? null;
-  };
+  const machineLabelFor = (thread: Pick<SidebarThreadSummary, "environmentId">) =>
+    environmentLabelById.get(thread.environmentId) ?? null;
   const selectedProjectScopeItem =
     projectScopeKeys.length > 1
       ? null
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
+  const environmentProjectScopeItems =
+    chosenEnvironmentScopeId === null
+      ? projectScopeItems
+      : projectScopeItems.filter(
+          (item) =>
+            item.value === "all" ||
+            projectGroupByScopeKey
+              .get(item.value)
+              ?.memberProjectRefs.some(
+                (projectRef) => projectRef.environmentId === chosenEnvironmentScopeId,
+              ),
+        );
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+    items: environmentProjectScopeItems,
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
-  const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const scopedEnvironmentId = revealWidensScope ? null : chosenEnvironmentScopeId;
+  const scopedProjectRefs = scopedProjectGroups
+    .flatMap((project) => project.memberProjectRefs)
+    .filter(
+      (projectRef) =>
+        scopedEnvironmentId === null || projectRef.environmentId === scopedEnvironmentId,
+    );
+  const scopedProjectKeys = revealWidensScope ? null : chosenScopeKeys;
   const threadSearch = useThreadSearch(
-    searchEnvironmentIds,
+    scopedEnvironmentId === null
+      ? searchEnvironmentIds
+      : searchEnvironmentIds.filter((environmentId) => environmentId === scopedEnvironmentId),
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1237,15 +1337,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  const sidebarPinnedOnly = useUiStateStore((store) => store.sidebarPinnedOnly);
+  const setSidebarPinnedOnly = useUiStateStore((store) => store.setSidebarPinnedOnly);
+  const legacyFavoriteThreadKeys = useUiStateStore((store) => store.legacyFavoriteThreadKeys);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pins the old browser-only favorites on each server once its config arrives
+  useEffect(() => {
+    if (legacyFavoriteThreadKeys.length === 0) return;
+    const plan = planFavoritePinMigration({
+      keys: legacyFavoriteThreadKeys,
+      supportsPinning: (environmentId) => {
+        const config = serverConfigs.get(environmentId);
+        return config === undefined
+          ? undefined
+          : config.environment.capabilities.threadPinning === true;
+      },
+      isPinned: (ref) => readThreadShell(ref)?.pinnedAt != null,
+    });
+    if (plan.drop.length === 0) return;
+    useUiStateStore.getState().dropLegacyFavoriteThreadKeys(plan.drop);
+    for (const ref of plan.pin) void pinThread(ref);
+  }, [legacyFavoriteThreadKeys, serverConfigs, pinThread]);
   const {
+    openSpecThreads,
     workingShelfEnabled,
-    pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
     activeThreads,
     workingThreads,
     snoozedThreads,
     settledThreads,
+    statusTab,
+    statusTabCounts,
+    setStatusTab,
     snoozeNow,
     searchableThreads,
     settledVisibleCount,
@@ -1282,9 +1405,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     delegatedUnderParent,
     routeRowThreadKey,
     folderGroups: boringSidebarEnabled
-      ? scopedProjectGroups.length === 0
-        ? projectGroups
-        : scopedProjectGroups
+      ? (scopedProjectGroups.length === 0 ? projectGroups : scopedProjectGroups).filter(
+          (project) =>
+            scopedEnvironmentId === null ||
+            project.memberProjectRefs.some(
+              (projectRef) => projectRef.environmentId === scopedEnvironmentId,
+            ),
+        )
       : null,
     keepEmptyFolders: scopedProjectGroups.length > 0,
   });
@@ -1860,31 +1987,29 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a project the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
-      pinnedThreads.length +
-        activeThreads.length +
-        workingThreads.length +
-        snoozedThreads.length +
-        settledCount ===
-        0
+      activeThreads.length + workingThreads.length + snoozedThreads.length + settledCount === 0
     ) {
       return [];
     }
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
     const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (workingThreads.length > 0) {
-      items.push({ kind: "marker", marker: "working-header" });
+      if (statusTab !== "working" && statusTab !== "waiting") {
+        items.push({ kind: "marker", marker: "working-header" });
+      }
       items.push(...rowsOf(visibleWorkingThreads, "working"));
     }
     if (snoozedThreads.length > 0) {
-      items.push({ kind: "marker", marker: "snoozed-header" });
+      if (statusTab !== "snoozed") items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
     }
-    items.push({ kind: "marker", marker: "settled-header" });
+    // Any other status tab lists one group, so the Settled shelf and its drop target are out.
+    if (statusTab !== "all" && statusTab !== "settled") return items;
+    // A shelf's own tab lists it flat: the tab already names it, so its header is out.
+    if (statusTab !== "settled") items.push({ kind: "marker", marker: "settled-header" });
     const settledRows = rowsOf(renderedSettledThreads, "settled");
     items.push({ kind: "marker", marker: "settled-placeholder" });
     items.push(...settledRows);
@@ -1950,6 +2075,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settledThreads,
           activeThreads,
           workingShelfEnabled,
+          openSpecThreads,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
@@ -1984,7 +2110,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             target,
             pinnedOrder: pinnedKeys,
             pinnedKeysById,
-            reorderableKeys: draggableThreadKeys,
+            reorderableKeys: sidebarPinnedOnly ? NO_REORDERABLE_KEYS : draggableThreadKeys,
             activeOrder: activeKeys,
             activeKeysById,
             activeReorderableKeys: activeReorderableThreadKeys,
@@ -2017,7 +2143,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       target,
       pinnedOrder: pinnedKeys,
       pinnedKeysById,
-      reorderableKeys: draggableThreadKeys,
+      reorderableKeys: sidebarPinnedOnly ? NO_REORDERABLE_KEYS : draggableThreadKeys,
       activeOrder: activeKeys,
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
@@ -2900,6 +3026,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
+              pinnedOnly={sidebarPinnedOnly}
+              onTogglePinnedOnly={() => setSidebarPinnedOnly(!sidebarPinnedOnly)}
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -3084,6 +3212,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {projectGroups.length > 0 ? (
+              <SidebarThreadFilters
+                environments={environmentScopeOptions}
+                selectedEnvironmentId={scopedEnvironmentId}
+                onEnvironmentChange={setEnvironmentScopeId}
+                projects={environmentProjectScopeItems.flatMap((item) =>
+                  item.value === "all" ? [] : [{ value: item.value, label: item.label }],
+                )}
+                selectedProjectKey={projectScopeKeys.length === 1 ? projectScopeKeys[0]! : null}
+                selectedProjectLabel={
+                  projectScopeKeys.length > 1
+                    ? `${projectScopeKeys.length} projects`
+                    : (projectGroupByScopeKey.get(projectScopeKeys[0] ?? "")?.displayName ?? null)
+                }
+                onProjectChange={(key) => setProjectScopeKeys(key === null ? [] : [key])}
+              />
+            ) : null}
+            <SidebarStatusTabs tab={statusTab} counts={statusTabCounts} onChange={setStatusTab} />
           </SidebarGroup>
         }
       >
@@ -3217,9 +3363,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             variant={rowVariant}
                             navigationParent={
                               folderRow ??
+                              (statusTab === "all" &&
                               (section === "working" ||
-                              section === "snoozed" ||
-                              section === "settled"
+                                section === "snoozed" ||
+                                section === "settled")
                                 ? `shelf:${section}`
                                 : undefined)
                             }
@@ -3269,7 +3416,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             environmentMachine={
                               environmentMachineById.get(thread.environmentId) ?? "server"
                             }
-                            scratchMachineLabel={scratchMachineLabelFor(thread)}
+                            machineLabel={machineLabelFor(thread)}
                             project={
                               projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
                               null
@@ -3298,6 +3445,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onUnsettle={attemptUnsettle}
                             onSnooze={attemptSnooze}
                             onUnsnooze={attemptUnsnooze}
+                            onPin={attemptPin}
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}
@@ -3394,7 +3542,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="working-shelf-header"
                                 marker="working-header"
-                                className="mt-auto"
+                                className={cn(statusTab === "all" && "mt-auto")}
                                 label="Working"
                                 count={workingThreads.length}
                                 toggle={{
@@ -3409,7 +3557,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className={cn(workingThreads.length === 0 && "mt-auto")}
+                                className={cn(
+                                  statusTab === "all" && workingThreads.length === 0 && "mt-auto",
+                                )}
                                 label="Snoozed"
                                 count={snoozedThreads.length}
                                 toggle={{
@@ -3425,7 +3575,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="settled-shelf-header"
                                 marker="settled-header"
                                 className={cn(
-                                  workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
+                                  statusTab === "all" &&
+                                    workingThreads.length + snoozedThreads.length === 0 &&
+                                    "mt-auto",
                                 )}
                                 label="Settled"
                                 count={settledCount}
@@ -3467,7 +3619,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           role="treeitem"
                           tabIndex={-1}
                           data-sidebar-row="settled:more"
-                          data-sidebar-parent="shelf:settled"
+                          data-sidebar-parent={statusTab === "all" ? "shelf:settled" : undefined}
                           disabled={olderSettledShelf.loading}
                           onClick={() => {
                             olderSettledShelf.retry();
@@ -3493,11 +3645,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           {!isSearchingThreads &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
-          pinnedThreads.length +
-            activeThreads.length +
-            workingThreads.length +
-            snoozedThreads.length +
-            settledCount ===
+          activeThreads.length + workingThreads.length + snoozedThreads.length + settledCount ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (

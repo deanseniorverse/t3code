@@ -1,4 +1,4 @@
-import { RunId } from "@t3tools/contracts";
+import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -9,6 +9,7 @@ import {
   sortActiveThreadsByOrderKey,
   sortSettledThreads,
   sortThreads,
+  sortThreadsByStatusTime,
   type SettledThreadTimestampInput,
   type ThreadSortInput,
 } from "./threadSort.ts";
@@ -300,5 +301,53 @@ describe("sortActiveThreadsByOrderKey", () => {
     const keys = new Map(assignments.map((assignment) => [assignment.id, assignment.orderKey]));
     const updated = threads.map((thread) => ({ ...thread, activeOrderKey: keys.get(thread.id) }));
     expect(sortActiveThreadsByOrderKey(updated).map((thread) => thread.id)).toEqual(orderedIds);
+  });
+});
+
+describe("sortThreadsByStatusTime", () => {
+  const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, "0")}:00.000Z`;
+  const thread = (
+    id: string,
+    tab: "input" | "failed" | "done" | "read",
+    run: { readonly started: number; readonly finished: number | null } | null,
+    messageMinute: number | null = null,
+  ) => ({
+    id: ThreadId.make(id),
+    tab,
+    environmentId: EnvironmentId.make("env-a"),
+    createdAt: at(1),
+    unsettledAt: null,
+    latestUserMessageAt: messageMinute === null ? null : at(messageMinute),
+    latestRun:
+      run === null
+        ? null
+        : {
+            runId: RunId.make(`run-${id}`),
+            status: "completed" as const,
+            requestedAt: at(run.started),
+            startedAt: at(run.started),
+            completedAt: run.finished === null ? null : at(run.finished),
+            assistantMessageId: null,
+          },
+  });
+
+  it("lists every status newest first: finished, else started, else created; read by latest activity", () => {
+    const threads = [
+      thread("done-finished-30", "done", { started: 5, finished: 30 }),
+      thread("input-started-20", "input", { started: 20, finished: null }),
+      thread("failed-created-1", "failed", null),
+      thread("read-message-40", "read", { started: 2, finished: 3 }, 40),
+      thread("input-finished-10", "input", { started: 8, finished: 10 }),
+    ];
+
+    expect(sortThreadsByStatusTime(threads, (entry) => entry.tab).map((entry) => entry.id)).toEqual(
+      [
+        "read-message-40",
+        "done-finished-30",
+        "input-started-20",
+        "input-finished-10",
+        "failed-created-1",
+      ],
+    );
   });
 });

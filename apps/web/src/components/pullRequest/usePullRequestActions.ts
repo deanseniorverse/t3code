@@ -234,7 +234,8 @@ export interface PullRequestThreadTask {
 export type PullRequestHandoffDetail = Pick<
   PullRequestDetail,
   "projectId" | "workspaceRoot" | "url"
->;
+> &
+  Partial<Pick<PullRequestDetail, "checkoutAvailable" | "repository">>;
 
 const lastHandoffPromptByDraft = new Map<DraftId, string>();
 
@@ -322,6 +323,8 @@ export function usePullRequestHandoffs({
     mode: "worktree" | "local" = "worktree",
   ) => {
     if (!detail || handoff !== null) return;
+    // Checkout opens its thread first, so a refusal from the server would leave a stray draft.
+    if (detail.checkoutAvailable === false) return;
     setHandoff(kind);
     // Explicit timeouts survive toast updates and would pin the result after loading.
     const toastId = toastManager.add({

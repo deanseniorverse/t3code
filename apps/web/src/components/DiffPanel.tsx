@@ -103,6 +103,7 @@ import { useReviewFilePatches } from "./diffs/useReviewFilePatches";
 import { DiffFileLoadingBoundary } from "./diffs/DiffFileLoadingBoundary";
 import { DiffFileStatus } from "./diffs/DiffFileStatus";
 import { useThreadRouteRef } from "../hooks/useThreadRouteTarget";
+import { ThreadRepoPills, threadRepoRoots } from "./ThreadRepoPills";
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
@@ -239,10 +240,16 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const activeRepositoryRoot = activeThread?.worktreePath
-    ? undefined
-    : activeProject?.repositoryIdentity?.rootPath;
+  const ownCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  // Another repository the thread reaches shows its branch and working-tree changes.
+  const [repoRootChoice, setRepoRootChoice] = useState<string | null>(null);
+  const repoRoots = threadRepoRoots(ownCwd, activeThread?.folders);
+  const activeCwd = repoRoots.find((root) => root.path === repoRootChoice)?.path ?? ownCwd;
+  const viewingOtherRepo = activeCwd !== ownCwd;
+  const activeRepositoryRoot =
+    activeThread?.worktreePath || viewingOtherRepo
+      ? undefined
+      : activeProject?.repositoryIdentity?.rootPath;
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -634,6 +641,7 @@ export default function DiffPanel({
       threadRef: routeThreadRef,
       filePath,
       activeCwd,
+      threadCwd: ownCwd,
       repositoryRoot: activeRepositoryRoot,
       openInEditor: (targetPath) => {
         void (async () => {
@@ -704,12 +712,26 @@ export default function DiffPanel({
     if (value === "unstaged" || value === "branch") {
       selectGitScope(value);
     } else if (value === "latest") {
+      setRepoRootChoice(null);
       if (latestTurn) selectTurn(latestTurn.runId);
     } else {
       const turn = orderedTurnDiffSummaries.find((summary) => `turn:${summary.runId}` === value);
+      setRepoRootChoice(null);
       if (turn) selectTurn(turn.runId);
     }
   };
+
+  const repoPills = (
+    <ThreadRepoPills
+      roots={repoRoots}
+      selectedPath={activeCwd ?? null}
+      onSelect={(root) => {
+        setRepoRootChoice(root.path);
+        // Turns are checkpoints of the thread's own checkout only.
+        if (root.path !== ownCwd && !isGitSelection) selectGitScope("branch");
+      }}
+    />
+  );
 
   const headerRow = (
     <>
@@ -1054,7 +1076,11 @@ export default function DiffPanel({
   );
 
   return (
-    <DiffPanelShell mode={mode} header={headerRow}>
+    <DiffPanelShell
+      mode={mode}
+      header={headerRow}
+      subheader={repoRoots.length > 1 ? repoPills : null}
+    >
       {!activeThread ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.

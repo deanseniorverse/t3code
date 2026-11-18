@@ -76,7 +76,6 @@ function collectEnvironments(environments: ReadonlyMap<EnvironmentId, ListEnviro
     pinningEnvironmentIds: loadedEnvironmentIds,
     autoSettleOptOutEnvironmentIds,
     pinReorderEnvironmentIds: loadedEnvironmentIds,
-    activeReorderEnvironmentIds: loadedEnvironmentIds,
     titleRegenerationEnvironmentIds: loadedEnvironmentIds,
     snoozePresetsByEnvironmentId,
   };

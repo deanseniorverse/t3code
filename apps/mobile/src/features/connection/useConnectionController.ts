@@ -2,6 +2,8 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   RelayConnectionRegistration,
   RelayConnectionTarget,
+  connectionCatalogDisplayUrl,
+  connectionEntryLabel,
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type {
@@ -9,6 +11,7 @@ import type {
   RelayEnvironmentStatusResponse,
 } from "@t3tools/contracts/relay";
 import * as Option from "effect/Option";
+import { AsyncResult } from "effect/reactivity";
 import { useMemo } from "react";
 
 import { environmentCatalog } from "../../connection/catalog";
@@ -32,6 +35,7 @@ export interface RelayEnvironmentView {
 export function useConnectionController() {
   const connectedEnvironments = useWorkspaceEnvironments();
   const discovery = useAtomValue(relayEnvironmentDiscovery.stateValueAtom);
+  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
   const connectPairingUrlMutation = useAtomCommand(connectPairingUrlAtom, {
     reportFailure: false,
   });
@@ -39,6 +43,9 @@ export function useConnectionController() {
   const registerEnvironment = useAtomCommand(environmentCatalog.register, "environment register");
   const removeEnvironmentMutation = useAtomCommand(environmentCatalog.remove, "environment remove");
   const retryEnvironmentMutation = useAtomCommand(environmentCatalog.retryNow, "environment retry");
+  const setNicknameMutation = useAtomCommand(environmentCatalog.setNickname, {
+    reportFailure: false,
+  });
   const setEnvironmentEnabledMutation = useAtomCommand(
     environmentCatalog.setEnabled,
     "environment toggle",
@@ -88,15 +95,23 @@ export function useConnectionController() {
     retryEnvironmentMutation(environmentId);
   const setEnvironmentEnabled = (environmentId: EnvironmentId, enabled: boolean) =>
     setEnvironmentEnabledMutation({ environmentId, enabled });
-  const updateEnvironment = (
+  // The label is this device's nickname for the environment; only a changed URL re-pairs it.
+  const updateEnvironment = async (
     environmentId: EnvironmentId,
     updates: { readonly label: string; readonly displayUrl: string },
-  ) =>
-    updateBearer({
+  ) => {
+    const entry = catalog.entries.get(environmentId);
+    if (entry !== undefined && updates.label.trim() !== connectionEntryLabel(entry)) {
+      const renamed = await setNicknameMutation({ environmentId, nickname: updates.label });
+      if (!AsyncResult.isSuccess(renamed)) return renamed;
+      if (updates.displayUrl === (connectionCatalogDisplayUrl(entry) ?? "")) return renamed;
+    }
+    return updateBearer({
       environmentId,
-      label: updates.label,
+      label: entry?.target.label ?? updates.label,
       httpBaseUrl: updates.displayUrl,
     });
+  };
 
   return {
     connectedEnvironments,

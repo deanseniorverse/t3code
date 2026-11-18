@@ -25,6 +25,8 @@ export class ConnectionPersistenceError extends Schema.TaggedError<ConnectionPer
       "set-connection-routes",
       "remove-connection",
       "set-connection-enabled",
+      "list-environment-nicknames",
+      "set-environment-nickname",
       "load-shell",
       "save-shell",
       "load-thread",
@@ -47,6 +49,10 @@ export class ConnectionTargetStore extends Context.Service<
   {
     readonly list: Effect.Effect<ReadonlyArray<ConnectionTarget>, ConnectionPersistenceError>;
     readonly listDisabled: Effect.Effect<ReadonlyArray<EnvironmentId>, ConnectionPersistenceError>;
+    readonly listNicknames: Effect.Effect<
+      ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly nickname: string }>,
+      ConnectionPersistenceError
+    >;
   }
 >()("@t3tools/client-runtime/platform/persistence/ConnectionTargetStore") {}
 
@@ -73,6 +79,11 @@ export class ConnectionRegistrationStore extends Context.Service<
     readonly setEnabled: (
       environmentId: EnvironmentId,
       enabled: boolean,
+    ) => Effect.Effect<void, ConnectionPersistenceError>;
+    /** Works for platform environments too; a null nickname clears it. */
+    readonly setNickname: (
+      environmentId: EnvironmentId,
+      nickname: string | null,
     ) => Effect.Effect<void, ConnectionPersistenceError>;
   }
 >()("@t3tools/client-runtime/platform/persistence/ConnectionRegistrationStore") {}

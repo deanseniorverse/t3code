@@ -1,4 +1,4 @@
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { FolderPlusIcon, PinIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,6 +16,8 @@ export interface SidebarThreadHeaderProps {
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   hasProjects: boolean;
   projectScope: ReactNode;
+  pinnedOnly: boolean;
+  onTogglePinnedOnly: () => void;
   onNewProject: () => void;
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
@@ -36,6 +38,8 @@ export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
   projectScope,
+  pinnedOnly,
+  onTogglePinnedOnly,
   onNewProject,
   onNewThread,
   newThreadDisabled,
@@ -104,6 +108,13 @@ export function SidebarThreadHeader({
       <div className="flex shrink-0 items-center">
         {hasProjects ? (
           <>
+            <SidebarHeaderIconButton
+              label={pinnedOnly ? "Show all threads" : "Show pinned only"}
+              aria-pressed={pinnedOnly}
+              onClick={onTogglePinnedOnly}
+            >
+              <PinIcon className={cn(pinnedOnly && "fill-current")} />
+            </SidebarHeaderIconButton>
             {projectScope}
             <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
               <FolderPlusIcon />

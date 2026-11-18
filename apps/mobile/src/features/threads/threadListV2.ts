@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { statusWithOpenSpecQuestions } from "@t3tools/client-runtime/state/spec-questions";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import {
   threadSearchMatchKey,
@@ -19,14 +20,21 @@ import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/sh
 import {
   createInboxReturnTracker,
   isThreadWorking,
-  sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
+  threadHasPlanReady,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
+  applyThreadStatusTab,
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
+  sortThreadsByStatusTime,
+} from "@t3tools/client-runtime/state/thread-sort";
+import type {
+  ThreadListTab,
+  ThreadStatusTab,
+  ThreadStatusTabCounts,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
@@ -242,16 +250,40 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-export function sortThreadsForListV2<
-  T extends {
-    readonly id: string;
-    readonly createdAt: string;
-    readonly unsettledAt?: string | null | undefined;
-    readonly activeOrderKey?: string | null | undefined;
-    readonly environmentId?: string | undefined;
-  },
->(threads: readonly T[]): T[] {
-  return sortActiveThreadsByOrderKey(threads);
+/** The tab a thread files under; on the Working shelf (`shelf`) only Working or Waiting. */
+function threadListV2Tab(
+  thread: EnvironmentThreadShell,
+  hasOpenSpecQuestions: boolean,
+  shelf = false,
+): ThreadListTab {
+  const status = statusWithOpenSpecQuestions(
+    resolveThreadListV2Status(thread),
+    thread,
+    hasOpenSpecQuestions,
+  );
+  if (status === "input" || status === "approval" || status === "request") return "input";
+  if (thread.hasPendingSignIn === true || threadHasPlanReady(thread)) return "input";
+  if (status === "waiting") return "waiting";
+  if (shelf || status === "working") return "working";
+  if (status === "failed" || status === "limited") return "failed";
+  if (status === "ready" && threadHasUnseenCompletion(thread)) return "done";
+  return "read";
+}
+
+/** The main list newest first across every status; see `sortThreadsByStatusTime`. */
+const EMPTY_SPEC_THREAD_KEYS: ReadonlySet<string> = new Set();
+
+export function threadSpecListKey(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) {
+  return `${thread.environmentId}:${thread.id}`;
+}
+
+export function sortThreadsByListV2Status(
+  threads: readonly EnvironmentThreadShell[],
+  hasOpenSpecQuestions: (thread: EnvironmentThreadShell) => boolean = () => false,
+): EnvironmentThreadShell[] {
+  return sortThreadsByStatusTime(threads, (thread) =>
+    threadListV2Tab(thread, hasOpenSpecQuestions(thread)),
+  );
 }
 
 export function getThreadListV2OrderedSection(input: {
@@ -317,6 +349,10 @@ export interface ThreadListV2Layout {
   readonly nextSnoozeWakeAt: string | null;
   /** Threads listed only because their messages match the search. */
   readonly contentOnlyThreadKeys: ReadonlySet<string>;
+  /** The status tab the list shows: the requested one, or "all" once that one has no threads. */
+  readonly statusTab: ThreadStatusTab;
+  /** Threads per status tab; null while a search lists matches from every tab. */
+  readonly statusTabCounts: ThreadStatusTabCounts | null;
 }
 
 export interface ThreadListV2ThreadListItem {
@@ -608,7 +644,7 @@ export function buildThreadListV2Items(input: {
   readonly workingShelfEnabled?: boolean;
   readonly workingShelfExpanded?: boolean;
   readonly isWorking?: (thread: EnvironmentThreadShell) => boolean;
-  readonly inboxReturnAt?: (thread: EnvironmentThreadShell) => number | undefined;
+  readonly openSpecThreadKeys?: ReadonlySet<string>;
   readonly snoozedShelfExpanded?: boolean;
   readonly settledShelfExpanded?: boolean;
   readonly selectedThreadKey?: string | null;
@@ -617,6 +653,8 @@ export function buildThreadListV2Items(input: {
   readonly isListedSettled?: (thread: EnvironmentThreadShell) => boolean;
   /** Settled threads in scope that are not local (older settled threads not loaded). */
   readonly unloadedSettledCount?: number;
+  /** Lists one status tab's threads flat, without shelf headers. A search ignores it. */
+  readonly statusTab?: ThreadStatusTab;
 }): ThreadListV2Layout {
   const now = input.now;
   const pending =
@@ -738,36 +776,61 @@ export function buildThreadListV2Items(input: {
       settledShelfHeaderIndex: null,
       nextSnoozeWakeAt,
       contentOnlyThreadKeys,
+      statusTab: input.statusTab ?? "all",
+      statusTabCounts: null,
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
-  const orderedWorking = sortWorkingThreadsBySend(working);
-  const orderedSnoozed = [...snoozed].sort(
+  const hasOpenSpecQuestions = (thread: EnvironmentThreadShell) =>
+    (input.openSpecThreadKeys ?? EMPTY_SPEC_THREAD_KEYS).has(threadSpecListKey(thread));
+  const unloadedSettledCount = input.unloadedSettledCount ?? 0;
+  const status = applyThreadStatusTab(
+    { pinned, active, working, snoozed, settled },
+    // An emptied Settled tab is not caught below, where older settled threads are not counted.
+    input.statusTab === "settled" && settled.length + unloadedSettledCount === 0
+      ? "all"
+      : (input.statusTab ?? "all"),
+    (thread, shelf) =>
+      threadListV2Tab(
+        thread,
+        hasOpenSpecQuestions(thread),
+        shelf || (input.isWorking ?? isThreadWorking)(thread),
+      ),
+  );
+  const statusTab = status.tab;
+  const statusTabCounts = {
+    ...status.counts,
+    all: status.counts.all + unloadedSettledCount,
+    settled: status.counts.settled + unloadedSettledCount,
+  };
+  const orderedActive = sortThreadsByListV2Status(status.active, hasOpenSpecQuestions);
+  const orderedWorking = sortWorkingThreadsBySend(status.working);
+  const orderedSnoozed = [...status.snoozed].sort(
     (left, right) =>
       parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
   );
   const selectedThreadKey = input.selectedThreadKey ?? null;
   const visibleWorking =
-    input.workingShelfExpanded === true
+    input.workingShelfExpanded === true || statusTab === "working" || statusTab === "waiting"
       ? orderedWorking
       : orderedWorking.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
   const visibleSnoozed =
-    input.snoozedShelfExpanded === true
+    input.snoozedShelfExpanded === true || statusTab === "snoozed"
       ? orderedSnoozed
       : orderedSnoozed.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
-  const orderedSettled = sortSettledThreadsReusingLast(settled);
+  const orderedSettled = sortSettledThreadsReusingLast(status.settled);
   const listedSettled =
     input.isListedSettled === undefined
       ? orderedSettled
       : orderedSettled.filter(input.isListedSettled);
-  const settledTotal = orderedSettled.length + (input.unloadedSettledCount ?? 0);
+  const settledTotal =
+    statusTab === "all" || statusTab === "settled"
+      ? orderedSettled.length + unloadedSettledCount
+      : 0;
   const settledLimit = input.settledLimit ?? Number.POSITIVE_INFINITY;
   const limitedSettled =
     listedSettled.length > settledLimit ? listedSettled.slice(0, settledLimit) : listedSettled;
@@ -781,15 +844,17 @@ export function buildThreadListV2Items(input: {
   const pagedSettled =
     selectedSettled === undefined ? limitedSettled : [...limitedSettled, selectedSettled];
   const visibleSettled =
-    input.settledShelfExpanded !== false
+    input.settledShelfExpanded !== false || statusTab === "settled"
       ? pagedSettled
       : pagedSettled.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
 
   const items: ThreadListV2Item[] = [];
+  // One tab lists its threads flat: the tab names the shelf, so its header is out.
+  const shelfHeaders = statusTab === "all";
   for (const thread of applyPendingThreadOrder(
-    sortPinnedThreadsByOrderKey(pinned),
+    sortPinnedThreadsByOrderKey(status.pinned),
     "pinned",
     pending,
   )) {
@@ -812,7 +877,7 @@ export function buildThreadListV2Items(input: {
       isLast: false,
     });
   }
-  const workingShelfHeaderIndex = orderedWorking.length > 0 ? items.length : null;
+  const workingShelfHeaderIndex = shelfHeaders && orderedWorking.length > 0 ? items.length : null;
   for (const thread of visibleWorking) {
     items.push({
       thread,
@@ -823,7 +888,7 @@ export function buildThreadListV2Items(input: {
       isLast: false,
     });
   }
-  const snoozedShelfHeaderIndex = orderedSnoozed.length > 0 ? items.length : null;
+  const snoozedShelfHeaderIndex = shelfHeaders && orderedSnoozed.length > 0 ? items.length : null;
   for (const thread of visibleSnoozed) {
     items.push({
       thread,
@@ -834,7 +899,7 @@ export function buildThreadListV2Items(input: {
       isLast: false,
     });
   }
-  const settledShelfHeaderIndex = settledTotal > 0 ? items.length : null;
+  const settledShelfHeaderIndex = shelfHeaders && settledTotal > 0 ? items.length : null;
   for (const thread of visibleSettled) {
     items.push({
       thread,
@@ -861,5 +926,7 @@ export function buildThreadListV2Items(input: {
     settledShelfHeaderIndex,
     nextSnoozeWakeAt,
     contentOnlyThreadKeys,
+    statusTab,
+    statusTabCounts,
   };
 }

@@ -40,19 +40,39 @@ const ThreadMetadataClientRequestId = TrimmedNonEmptyString.check(Schema.isMaxLe
   )
   .annotate({ description: "Stable idempotency key to reuse when retrying this mutation." });
 
-export const ThreadMetadataMcpAction = Schema.Literals(["rename", "regenerate_title"]);
+export const ThreadMetadataMcpAction = Schema.Literals([
+  "rename",
+  "regenerate_title",
+  "set_folders",
+]);
+
+const ThreadMetadataFolders = Schema.Array(
+  TrimmedNonEmptyString.check(
+    Schema.makeFilter((value) =>
+      value.startsWith("/") ? true : "Folders must be absolute paths.",
+    ),
+  ),
+)
+  .check(Schema.isMaxLength(32))
+  .annotate({
+    description:
+      "Absolute folders this thread's work reaches beyond its checkout, such as sibling repositories. Replaces the list; [] clears it. Only with set_folders.",
+  });
 export type ThreadMetadataMcpAction = typeof ThreadMetadataMcpAction.Type;
 
 export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   threadId: Schema.optional(ThreadId),
   action: ThreadMetadataMcpAction,
   title: Schema.optional(ThreadMetadataTitle),
+  folders: Schema.optional(ThreadMetadataFolders),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
   Schema.makeFilter((input) =>
     (input.action === "rename") === (input.title !== undefined)
-      ? true
-      : "rename requires title; regenerate_title does not accept one.",
+      ? (input.action === "set_folders") === (input.folders !== undefined)
+        ? true
+        : "set_folders requires folders; other actions do not accept them."
+      : "rename requires title; other actions do not accept one.",
   ),
 );
 export type ThreadMetadataMcpUpdateInput = typeof ThreadMetadataMcpUpdateInput.Type;

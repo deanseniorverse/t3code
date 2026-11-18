@@ -129,6 +129,8 @@ import {
   pullRequestHandoffLabels,
   PULL_REQUEST_MERGE_METHOD_LABELS,
   checkoutFailureDescription,
+  checkoutUnavailableReason,
+  foreignRepositoryKey,
   readableFailure,
   resolvePullRequestReferenceHost,
   resolvePullRequestPrimaryControl,
@@ -627,6 +629,7 @@ export function PullRequestDetailPanel({
             label: environment.label,
             machine: resolveEnvironmentMachineKind(environment.serverConfig),
           })),
+          detail?.checkoutAvailable === false ? foreignRepositoryKey(detail.url) : undefined,
         )
       : [];
   const [actingScope, setActingScope] = useState<{
@@ -640,6 +643,9 @@ export function PullRequestDetailPanel({
   const actingEnvironmentId = acting?.environmentId ?? environmentId;
   const checkoutRoot =
     acting?.workspaceRoot ?? detail?.workspaceRoot ?? project?.workspaceRoot ?? null;
+  // Availability describes this environment's project; another machine answers for itself.
+  const checkoutBlockedReason =
+    actingEnvironmentId === environmentId ? checkoutUnavailableReason(detail) : null;
   const canOperateThread = useEnvironmentScope(actingEnvironmentId, AuthOrchestrationOperateScope);
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
@@ -865,6 +871,15 @@ export function PullRequestDetailPanel({
       return;
     }
     if (checkoutRoot === null) return;
+    // Checkout opens its thread first, so a refusal from the server would leave a stray draft.
+    if (checkoutBlockedReason !== null) {
+      toastManager.add({
+        type: "error",
+        title: `Could not prepare the ${terminology.singular} checkout`,
+        description: checkoutBlockedReason,
+      });
+      return;
+    }
     if (
       !prepareThread.isAllowed ||
       !readEnvironmentScope(actingEnvironmentId, AuthSourceControlWriteScope)
@@ -1219,13 +1234,17 @@ export function PullRequestDetailPanel({
         pickableEnvironments={pickableEnvironments}
         actingEnvironmentId={actingEnvironmentId}
         onActingEnvironmentChange={selectActingEnvironment}
+        unavailableReason={checkoutBlockedReason}
       />
     ) : null;
 
   const resolveConflictsControl = (
     <PullRequestResolveConflictsButton
       handoff={handoff}
-      unavailable={attachTarget === null && checkoutRoot === null}
+      unavailable={
+        attachTarget === null && (checkoutRoot === null || checkoutBlockedReason !== null)
+      }
+      unavailableReason={attachTarget === null ? checkoutBlockedReason : null}
       onResolve={startResolveConflicts}
     />
   );

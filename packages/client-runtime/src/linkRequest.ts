@@ -11,6 +11,7 @@ import {
 import * as Option from "effect/Option";
 
 import type { EnvironmentPresentation } from "./connection/presentation.ts";
+import { connectionEntryLabel } from "./connection/catalog.ts";
 import { connectionRoutes, routeHttpBaseUrl } from "./connection/routes.ts";
 import type { RelayDiscoveredEnvironment } from "./relay/discovery.ts";
 
@@ -103,7 +104,7 @@ export function linkableMachines(input: {
       const connect = input.connect.get(environment.environmentId)?.environment.endpoint;
       return {
         environmentId: environment.environmentId,
-        label: environment.entry.target.label,
+        label: connectionEntryLabel(environment.entry),
         machine: resolveEnvironmentMachineKind(environment.serverConfig),
         connected: environment.connection.phase === "connected",
         connectOnly: false,

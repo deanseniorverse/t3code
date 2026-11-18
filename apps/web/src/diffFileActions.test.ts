@@ -35,6 +35,21 @@ describe("openDiffFilePrimaryAction", () => {
     expect(openInEditor).not.toHaveBeenCalled();
   });
 
+  it("opens an attached folder's diff files by absolute path", () => {
+    openDiffFilePrimaryAction({
+      threadRef: THREAD_REF,
+      filePath: "docs/guide.md",
+      activeCwd: "/other-repo",
+      threadCwd: "/repo",
+      repositoryRoot: "/other-repo",
+      openInEditor: vi.fn(),
+    });
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({ isOpen: true, activeSurfaceId: "file:/other-repo/docs/guide.md" });
+  });
+
   it("preserves repository-relative paths in a separate worktree", () => {
     expect(
       resolveDiffPathForWorkspace({

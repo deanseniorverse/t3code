@@ -20,7 +20,9 @@ import type {
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
 import type { ServerSettings } from "@t3tools/contracts";
 import * as ServerSettingsService from "../serverSettings.ts";
-import { PullRequestOperationError } from "@t3tools/contracts";
+import { GitCommandError, PullRequestOperationError } from "@t3tools/contracts";
+import { ChildProcessSpawner } from "effect/process";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -148,6 +150,43 @@ it.effect("reads maintainer edits and changes them through the update command", 
   }),
 );
 
+it.effect.each([
+  {
+    name: "no remote on the repository",
+    rawRemoteConfig: "remote.origin.url git@github.com:acme/framework.git\n",
+    expected: false,
+  },
+  {
+    name: "a matching remote other than origin",
+    rawRemoteConfig:
+      "remote.origin.url https://github.com/me/fork.git\nremote.upstream.url git@github.com:Acme/Web.git\n",
+    expected: true,
+  },
+  { name: "an unreadable checkout", rawRemoteConfig: undefined, expected: undefined },
+])("reports checkout availability with $name", ({ rawRemoteConfig, expected }) =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          getChangeRequest: () =>
+            Effect.succeed({
+              ...hostedChangeRequest("Body"),
+              url: "https://github.com/acme/web/pull/1",
+            }),
+        }),
+      ],
+      ...(rawRemoteConfig === undefined ? {} : { rawRemoteConfig }),
+    });
+    const detail = yield* service.detail({
+      projectId: "p1" as ProjectId,
+      repository: "acme/web",
+      number: 1,
+    });
+    assert.strictEqual(detail.checkoutAvailable, expected);
+  }),
+);
+
 it.effect("refuses maintainer edits on a host without the capability", () =>
   Effect.gen(function* () {
     let writes = 0;
@@ -257,6 +296,8 @@ function makeService(input: {
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
   readonly resolveRepositoryIdentity?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"]["resolve"];
+  /** Output of `git config --get-regexp`; unset means the checkout can't be read. */
+  readonly rawRemoteConfig?: string;
 }) {
   // Build in the test scope; per-call Effect.provide would close the marks database on service acquisition.
   return Effect.flatMap(
@@ -288,6 +329,25 @@ function makeService(input: {
         }),
         Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
           resolve: input.resolveRepositoryIdentity ?? (() => Effect.succeed(null)),
+        }),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({
+          execute: (execute) =>
+            input.rawRemoteConfig === undefined
+              ? Effect.fail(
+                  new GitCommandError({
+                    operation: execute.operation,
+                    command: "git config",
+                    cwd: execute.cwd,
+                    detail: "not a repository",
+                  }),
+                )
+              : Effect.succeed({
+                  exitCode: ChildProcessSpawner.ExitCode(0),
+                  stdout: input.rawRemoteConfig,
+                  stderr: "",
+                  stdoutTruncated: false,
+                  stderrTruncated: false,
+                }),
         }),
         SourceControlRateLimit.layer,
         PullRequestFilesViewed.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),

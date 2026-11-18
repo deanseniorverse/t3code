@@ -142,6 +142,14 @@ describe("createInboxReturnTracker", () => {
     },
   );
 
+  it("holds a pin that stops working, like any thread", () => {
+    const tracker = createInboxReturnTracker();
+    const pinned = { pinnedAt: "2026-06-01T00:00:01Z" };
+    tracker.observe([{ ...thread("a", true), ...pinned }]);
+    tracker.observe([{ ...thread("a", false), ...pinned }]);
+    expect(tracker.isWorking(thread("a", false))).toBe(true);
+  });
+
   it("grants grace after a retained expired snooze", () => {
     const tracker = createInboxReturnTracker();
     const retained = {
